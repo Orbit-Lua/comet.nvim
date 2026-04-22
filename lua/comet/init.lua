@@ -24,10 +24,9 @@ local api = vim.api
 local output_buf_cache = {}
 
 ---@class RunningTaskInfo
----@field abort_fn fun(job_id: integer, ctx: CometCtx)|nil Function to call to signal the task to stop
+---@field abort_fn fun()|nil Function to call to signal the task to stop
 ---@field status "running"|"done"|"abort"|"error"|nil Current status of the task for UI display
 ---@field id integer|nil Job ID if applicable
----@field ctx CometCtx|nil Context passed to the task, useful for updating output on abort
 
 --- Track running tasks by page key to manage their lifecycle and UI state
 --- [page_key] -> RunningTaskInfo
@@ -142,14 +141,15 @@ local function update_output_title()
 end
 
 local function stop_job()
+  if not (S.current_page_key and running_tasks[S.current_page_key]) then
+    return
+  end
+
   local abort = running_tasks[S.current_page_key].abort_fn
-  local job_id = running_tasks[S.current_page_key].id
-  local ctx = running_tasks[S.current_page_key].ctx
   local status = running_tasks[S.current_page_key].status
 
-  if abort and job_id and ctx and (status == "running") then
-    abort(job_id, ctx)
-
+  if abort and (status == "running") then
+    abort()
     running_tasks[S.current_page_key].status = nil
     update_output_title()
   end
@@ -497,60 +497,54 @@ end
 ---@param trigger_name string
 ---@return CometCtx
 local function make_ctx(trigger_name)
-  -- Capture the currently active buffer and page key at context creation time.
-  -- This locks the output destination for this specific task.
-  local target_buf = S.output_buf
-  local target_page_key = S.current_page_key
-
   ---@type CometCtx
   local ctx = {
-    write = function(lines)
-      out_write(target_buf, lines)
+    -- Capture the currently active buffer and page key at context creation time.
+    -- This locks the output destination for this specific task.
+    target_buf = S.output_buf,
+    target_page_key = S.current_page_key,
+
+    write = function(self, lines)
+      out_write(self.target_buf, lines)
     end,
 
-    clear = function()
-      out_clear(target_buf)
+    clear = function(self)
+      out_clear(self.target_buf)
     end,
 
-    append = function(line)
-      out_write(target_buf, line)
+    append = function(self, line)
+      out_write(self.target_buf, line)
     end,
 
     ---Register a function to be called when user presses send stop signal. Pass nil to clear.
-    start_async_task = function(job_id, abort_fn)
-      -- HACK:
-      -- DYNAMIC EVALUATION: Fetch the current page key at execution time.
-      -- If the action logic changed the page (e.g., via ctx.select) before
-      -- starting the job, this ensures the task is tracked under the newly
-      -- activated page, displaying the "running" state correctly.
-      local pk = S.current_page_key
+    start_async_task = function(self, job_id, abort_fn)
+      running_tasks[self.target_page_key] = {
+        abort_fn = function()
+          local abort = abort_fn or S.default_abort_fn
+          abort(job_id, self)
+        end,
+        status = "running",
+        id = job_id,
+      }
 
-      running_tasks[pk].abort_fn = abort_fn or S.default_abort_fn
-      running_tasks[pk].status = "running"
-      running_tasks[pk].id = job_id
       vim.schedule(update_output_title)
     end,
 
-    done = function()
-      -- HACK:
-      -- CLOSURE BINDING: Always use the originally captured page key.
-      -- Task completion is asynchronous. Even if the user has navigated away
-      -- (e.g., back to the root page), this guarantees the completion status
-      -- ("done") is applied to the exact page that spawned the task.
-      if running_tasks[target_page_key] then
-        running_tasks[target_page_key].status = "done"
+    done = function(self)
+      if running_tasks[self.target_page_key] then
+        running_tasks[self.target_page_key].status = "done"
         vim.schedule(update_output_title)
       end
     end,
 
-    error = function()
-      if running_tasks[target_page_key] then
-        running_tasks[target_page_key].status = "error"
+    error = function(self)
+      if running_tasks[self.target_page_key] then
+        running_tasks[self.target_page_key].status = "error"
         vim.schedule(update_output_title)
       end
     end,
 
-    select = function(items, opts)
+    select = function(self, items, opts)
       local saved = take_input_query()
       local all = vim.deepcopy(items)
       for i, it in ipairs(all) do
@@ -564,9 +558,9 @@ local function make_ctx(trigger_name)
       -- Key Logic: If entering level 2 from root, use the item's name (e.g., "build").
       -- If entering level 3+, reuse the base level 2 page_key so they all share the same buffer.
       if #S.sub_stack == 0 then
-        target_page_key = trigger_name
+        self.target_page_key = trigger_name
       else
-        target_page_key = S.sub_stack[1].page_key
+        self.target_page_key = S.sub_stack[1].page_key
       end
 
       table.insert(S.sub_stack, {
@@ -576,14 +570,14 @@ local function make_ctx(trigger_name)
         on_select = opts.on_select,
         on_cancel = opts.on_cancel,
         title = sub_title,
-        page_key = target_page_key, -- Store the shared key in the stack
+        page_key = self.target_page_key, -- Store the shared key in the stack
         saved_query = saved,
         multi_select = opts.multi_select or false,
         marked = {},
       })
 
       -- Switch to the shared branch buffer
-      switch_output_buf(target_page_key)
+      switch_output_buf(self.target_page_key)
 
       pcall(api.nvim_win_set_config, S.input_win, {
         title = " " .. sub_title .. " ",
@@ -598,7 +592,7 @@ local function make_ctx(trigger_name)
       end
     end,
   }
-  running_tasks[S.current_page_key] = { abort_fn = S.default_abort_fn, ctx = ctx, status = nil, id = nil } -- Initialize task tracking for this trigger name
+
   return ctx
 end
 
@@ -941,12 +935,15 @@ end
 ---@field action fun(ctx: CometCtx)
 
 ---@class CometCtx
----@field write fun(lines: string[]|string)
----@field clear fun()
----@field done fun()
----@field append fun(line: string)
----@field start_async_task fun(job_id: integer, abort_fn: function|nil) Register or clear a stop handler for stop signal
----@field select fun(items: any[], opts: {title?: string, multi_select?: boolean, on_select: fun(item_or_items: any, ctx: CometCtx), on_cancel?: fun()})
+---@field target_buf integer The specific buffer associated with this context (captured at creation time)
+---@field target_page_key string The page key associated with this context (captured at creation time)
+---@field write fun(ctx: CometCtx, lines: string[]|string)
+---@field clear fun(ctx: CometCtx)
+---@field done fun(ctx: CometCtx)
+---@field error fun(ctx: CometCtx)
+---@field append fun(ctx: CometCtx, line: string)
+---@field start_async_task fun(ctx: CometCtx, job_id: integer, abort_fn: function|nil) Register or clear a stop handler for stop signal
+---@field select fun(ctx: CometCtx, items: any[], opts: {title?: string, multi_select?: boolean, on_select: fun(item_or_items: any, ctx: CometCtx), on_cancel?: fun()})
 
 ---@class CometOpts
 ---@field title? string
@@ -958,8 +955,8 @@ end
 ---@param job_id integer
 local function default_abort_fn(job_id, ctx)
   vim.fn.jobstop(job_id)
-  ctx.append("\n[Process Terminated by User]")
-  running_tasks[S.current_page_key].status = nil
+  ctx:append("\n[Process Terminated by User]")
+  running_tasks[ctx.target_page_key].status = nil
 end
 
 ---Open the two-panel picker UI.
