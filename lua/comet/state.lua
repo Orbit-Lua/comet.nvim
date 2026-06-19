@@ -2,7 +2,7 @@
 
 ---@class CometCommand
 ---@field name string Display name of the item
----@field icon string Icon to display
+---@field icon? string Icon to display
 ---@field icon_hl? string Highlight group for the icon (default "String")
 ---@field desc? string Used for fuzzy filtering
 ---@field action fun(ctx: CometCtx) Callback executed when selected
@@ -13,6 +13,7 @@
 ---@field insert_mode? boolean Automatically enter insert mode
 ---@field block_while_running? boolean Prevent executing new commands while running
 ---@field remember_page? boolean Remember sub-page, selection, and query across sessions
+---@field show_icons? boolean Show command icons in the list
 
 ---@class RunningTaskInfo
 ---@field abort_fn fun()|nil Function to call to signal the task to stop
@@ -44,6 +45,7 @@
 ---@field insert_mode boolean
 ---@field block_while_running boolean
 ---@field remember_page boolean
+---@field show_icons boolean
 ---@field current_page_key string
 ---@field ns integer
 ---@field out_ns integer
@@ -118,6 +120,7 @@ M.init = function(commands, opts, layout_opts)
     insert_mode = opts.insert_mode or false,
     block_while_running = opts.block_while_running ~= false,
     remember_page = opts.remember_page ~= false,
+    show_icons = opts.show_icons ~= false,
     current_page_key = root_title,
     ns = vim.api.nvim_create_namespace("CometUI"),
     out_ns = vim.api.nvim_create_namespace("CometUIOutput"),

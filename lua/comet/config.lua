@@ -7,6 +7,7 @@ M.defaults = {
   insert_mode = true,
   block_while_running = true,
   remember_page = true,
+  show_icons = true,
 }
 
 ---@type CometOpts

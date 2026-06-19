@@ -17,7 +17,10 @@ M.filter_commands = function(query)
     local q = query:lower()
     S.filtered = {}
     for _, item in ipairs(S.commands) do
-      if item.name:lower():find(q, 1, true) or (item.desc and item.desc:lower():find(q, 1, true)) then
+      if
+        item.name:lower():find(q, 1, true)
+        or (item.desc and item.desc:lower():find(q, 1, true))
+      then
         table.insert(S.filtered, item)
       end
     end
@@ -39,7 +42,8 @@ M.filter_sub = function(query)
     local q = query:lower()
     sub.items = {}
     for _, item in ipairs(sub.all_items) do
-      local text = type(item) == "string" and item or (item.name or "")
+      local text = type(item) == "string" and item
+        or ((item.name or "") .. " " .. (item.desc or ""))
       if text:lower():find(q, 1, true) then
         table.insert(sub.items, item)
       end

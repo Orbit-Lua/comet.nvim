@@ -27,6 +27,33 @@ M.move = function(delta)
   render.list()
 end
 
+M.move_to_top = function()
+  local S = state.get()
+  local sub = state.current_sub()
+
+  if sub then
+    sub.selected = 1
+  else
+    S.selected = 1
+  end
+
+  render.list()
+end
+
+M.move_to_bottom = function()
+  local S = state.get()
+  local sub = state.current_sub()
+  local n = #state.current_items()
+
+  if sub then
+    sub.selected = n
+  else
+    S.selected = n
+  end
+
+  render.list()
+end
+
 --- Handle `<Esc>` or `q`: Either pop the menu stack or close the UI
 M.handle_esc = function()
   local S = state.get()
@@ -45,7 +72,11 @@ M.handle_esc = function()
       parent_key = S.sub_stack[1].page_key
     end
 
-    pcall(api.nvim_win_set_config, S.input_win, { title = " " .. parent_title .. " ", title_pos = "center" })
+    pcall(
+      api.nvim_win_set_config,
+      S.input_win,
+      { title = " " .. parent_title .. " ", title_pos = "center" }
+    )
 
     window.switch_output_buf(parent_key)
     window.put_input_query(popped.saved_query or "")
@@ -65,7 +96,9 @@ end
 --- Safely stop a running job using its context
 M.stop_job = function()
   local S = state.get()
-  if not (S and S.current_page_key and state.running_tasks[S.current_page_key]) then
+  if
+    not (S and S.current_page_key and state.running_tasks[S.current_page_key])
+  then
     return
   end
 
@@ -87,7 +120,12 @@ M.run_selected = function()
     and state.running_tasks[S.current_page_key]
     and state.running_tasks[S.current_page_key].status == "running"
   then
-    vim.api.nvim_echo({ { " Task is still running. Press <C-c> to stop it first.", "DiagnosticWarn" } }, false, {})
+    vim.api.nvim_echo({
+      {
+        " Task is still running. Press <C-c> to stop it first.",
+        "DiagnosticWarn",
+      },
+    }, false, {})
     return
   end
 
@@ -103,7 +141,8 @@ M.run_selected = function()
     return
   end
 
-  local trigger_name = type(item) == "table" and (item.name or "Item") or tostring(item)
+  local trigger_name = type(item) == "table" and (item.name or "Item")
+    or tostring(item)
   local sub = state.current_sub()
 
   if sub then
@@ -120,13 +159,15 @@ M.run_selected = function()
           trigger_name = "Multi(" .. #selected_items .. ")"
         else
           local first = selected_items[1]
-          trigger_name = type(first) == "table" and (first.name or "Item") or tostring(first)
+          trigger_name = type(first) == "table" and (first.name or "Item")
+            or tostring(first)
         end
       else
         selected_items = { item }
       end
 
       local on_sel = sub.on_select
+      local callback_page_key = sub.page_key
       local popped = table.remove(S.sub_stack)
 
       local parent_title = S.root_title
@@ -137,8 +178,12 @@ M.run_selected = function()
         parent_key = S.sub_stack[1].page_key
       end
 
-      pcall(api.nvim_win_set_config, S.input_win, { title = " " .. parent_title .. " ", title_pos = "center" })
-      window.switch_output_buf(parent_key)
+      pcall(
+        api.nvim_win_set_config,
+        S.input_win,
+        { title = " " .. parent_title .. " ", title_pos = "center" }
+      )
+      window.switch_output_buf(callback_page_key or parent_key)
       window.put_input_query(popped.saved_query or "")
 
       if #S.sub_stack > 0 then
@@ -149,7 +194,7 @@ M.run_selected = function()
 
       render.list()
       if on_sel and #selected_items > 0 then
-        on_sel(selected_items, context.make(trigger_name))
+        on_sel(selected_items, context.make(trigger_name, callback_page_key))
       end
     else
       if sub.on_select then
@@ -159,12 +204,16 @@ M.run_selected = function()
     end
   else
     if item.action then
-      item.action(context.make(trigger_name))
+      item.action(context.make(trigger_name, S.root_title))
     end
   end
 
   vim.schedule(function()
-    if state.is_open() and S.input_win and api.nvim_win_is_valid(S.input_win) then
+    if
+      state.is_open()
+      and S.input_win
+      and api.nvim_win_is_valid(S.input_win)
+    then
       local cur = api.nvim_get_current_win()
       if cur == S.input_win or cur == S.list_win or cur == S.output_win then
         api.nvim_set_current_win(S.input_win)
@@ -194,7 +243,11 @@ local function update_multi_title()
     title = title .. " (" .. count .. " selected)"
   end
 
-  pcall(api.nvim_win_set_config, S.input_win, { title = " " .. title .. " ", title_pos = "center" })
+  pcall(
+    api.nvim_win_set_config,
+    S.input_win,
+    { title = " " .. title .. " ", title_pos = "center" }
+  )
 end
 
 --- Toggle checkbox for current item in multi-select mode

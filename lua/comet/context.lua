@@ -9,7 +9,13 @@
 ---@field error fun(self: CometCtx)
 ---@field append fun(self: CometCtx, line: string)
 ---@field start_async_task fun(self: CometCtx, job_id: integer, abort_fn: function|nil)
----@field select fun(self: CometCtx, items: any[], opts: {title?: string, multi_select?: boolean, on_select: fun(item_or_items: any, ctx: CometCtx), on_cancel?: fun()})
+---@field select fun(self: CometCtx, items: any[], opts: CometSelectOpts)
+
+---@class CometSelectOpts
+---@field title? string
+---@field multi_select? boolean
+---@field on_select fun(item_or_items: any, ctx: CometCtx)
+---@field on_cancel? fun()
 
 local render = require("comet.ui.render")
 local state = require("comet.state")
@@ -18,14 +24,17 @@ local M = {}
 
 --- Create a new API Context specifically bound to a page key buffer
 ---@param trigger_name string
+---@param page_key? string
 ---@return CometCtx
-M.make = function(trigger_name)
+M.make = function(trigger_name, page_key)
   local S = state.get()
+  local target_page_key = page_key or S.current_page_key
+  local target_buf = state.output_buf_cache[target_page_key] or S.output_buf
 
   ---@type CometCtx
   local ctx = {
-    target_buf = S.output_buf,
-    target_page_key = S.current_page_key,
+    target_buf = target_buf,
+    target_page_key = target_page_key,
 
     write = function(self, lines)
       render.out_write(self.target_buf, lines)
@@ -96,7 +105,11 @@ M.make = function(trigger_name)
 
       window.switch_output_buf(self.target_page_key)
 
-      pcall(vim.api.nvim_win_set_config, S.input_win, { title = " " .. sub_title .. " ", title_pos = "center" })
+      pcall(
+        vim.api.nvim_win_set_config,
+        S.input_win,
+        { title = " " .. sub_title .. " ", title_pos = "center" }
+      )
       render.list()
       window.focus_input()
     end,

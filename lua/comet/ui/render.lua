@@ -72,13 +72,15 @@ M.update_output_title = function()
   end
 
   local title = " Output "
-  if #S.sub_stack > 0 then
+  if S.current_page_key ~= S.root_title then
     title = title .. S.current_page_key
   else
     title = title .. "Main"
   end
 
-  local status = state.running_tasks[S.current_page_key] and state.running_tasks[S.current_page_key].status or nil
+  local status = state.running_tasks[S.current_page_key]
+      and state.running_tasks[S.current_page_key].status
+    or nil
   local is_focused = api.nvim_get_current_win() == S.output_win
 
   if status == "running" then
@@ -93,7 +95,11 @@ M.update_output_title = function()
 
   title = title .. (is_focused and "(focused) " or " ")
 
-  pcall(api.nvim_win_set_config, S.output_win, { title = title, title_pos = "center" })
+  pcall(
+    api.nvim_win_set_config,
+    S.output_win,
+    { title = title, title_pos = "center" }
+  )
 end
 
 --- Append lines to the target buffer
@@ -130,7 +136,11 @@ M.out_write = function(target_buf, lines)
     M.highlight_output(target_buf, start, start + #to_write)
 
     local S = state.get()
-    if S.output_win and api.nvim_win_is_valid(S.output_win) and api.nvim_win_get_buf(S.output_win) == target_buf then
+    if
+      S.output_win
+      and api.nvim_win_is_valid(S.output_win)
+      and api.nvim_win_get_buf(S.output_win) == target_buf
+    then
       local new_n = api.nvim_buf_line_count(target_buf)
       pcall(api.nvim_win_set_cursor, S.output_win, { new_n, 0 })
     end
@@ -187,7 +197,9 @@ M.list = function()
     if type(item) == "string" then
       table.insert(lines, "  " .. mark .. item)
     else
-      table.insert(lines, "  " .. mark .. item.icon .. "  " .. item.name)
+      local icon = S.show_icons and item.icon or nil
+      local icon_text = icon and icon ~= "" and (icon .. "  ") or ""
+      table.insert(lines, "  " .. mark .. icon_text .. item.name)
     end
   end
 
@@ -203,39 +215,63 @@ M.list = function()
     local moff = mark_offsets[i] or 0
 
     if is_sel then
-      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, 0, { line_hl_group = "Visual" })
+      api.nvim_buf_set_extmark(
+        S.list_buf,
+        S.ns,
+        row,
+        0,
+        { line_hl_group = "Visual" }
+      )
     end
 
     if is_multi and moff > 0 and sub and sub.marked[get_mark_key(item)] then
-      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, 2, { end_col = 2 + moff, hl_group = "DiagnosticOk" })
+      api.nvim_buf_set_extmark(
+        S.list_buf,
+        S.ns,
+        row,
+        2,
+        { end_col = 2 + moff, hl_group = "DiagnosticOk" }
+      )
     end
 
     if type(item) == "table" then
-      local icon_hl = item.icon_hl or "String"
-      local icon_start = 2 + moff
-      local icon_end = icon_start + #item.icon
-      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, icon_start, { end_col = icon_end, hl_group = icon_hl })
-      api.nvim_buf_set_extmark(
-        S.list_buf,
-        S.ns,
-        row,
-        icon_end + 2,
-        { end_col = #lines[i], hl_group = is_sel and "CursorLineNr" or "Normal" }
-      )
+      local icon = S.show_icons and item.icon or nil
+      local name_start = 2 + moff
+
+      if icon and icon ~= "" then
+        local icon_hl = item.icon_hl or "String"
+        local icon_start = 2 + moff
+        local icon_end = icon_start + #icon
+        api.nvim_buf_set_extmark(
+          S.list_buf,
+          S.ns,
+          row,
+          icon_start,
+          { end_col = icon_end, hl_group = icon_hl }
+        )
+        name_start = icon_end + 2
+      end
+
+      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, name_start, {
+        end_col = #lines[i],
+        hl_group = is_sel and "CursorLineNr" or "Normal",
+      })
     else
-      api.nvim_buf_set_extmark(
-        S.list_buf,
-        S.ns,
-        row,
-        2 + moff,
-        { end_col = #lines[i], hl_group = is_sel and "CursorLineNr" or "Normal" }
-      )
+      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, 2 + moff, {
+        end_col = #lines[i],
+        hl_group = is_sel and "CursorLineNr" or "Normal",
+      })
     end
   end
 
   vim.bo[S.list_buf].modifiable = false
 
-  if S.list_win and api.nvim_win_is_valid(S.list_win) and sel > 0 and sel <= #items then
+  if
+    S.list_win
+    and api.nvim_win_is_valid(S.list_win)
+    and sel > 0
+    and sel <= #items
+  then
     pcall(api.nvim_win_set_cursor, S.list_win, { sel, 0 })
   end
 end

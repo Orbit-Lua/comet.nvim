@@ -1,146 +1,119 @@
-# AGENTS.md — comet.nvim
+# Comet.nvim
 
-Guide for AI agents working in this repository.
+Guidance for agents working in this repository.
 
----
+## Project
 
-## Project Overview
+comet.nvim is a zero-dependency Neovim 0.10+ UI library for plugin authors.
+It provides a floating picker with an input and list on the left, plus an
+output panel on the right. It supports async task output, nested sub-menus,
+filtering, configurable icons, multi-select, and page memory across close and
+reopen cycles.
 
-**comet.nvim** is a generic two-panel picker and task UI library for Neovim. It provides a floating window layout (input + list left, output right) with async task management, nested sub-menus, fuzzy filtering, and state persistence across open/close cycles. It is designed to be consumed by other plugins, not used standalone.
+## Layout
 
-Minimum Neovim version: **0.10**.
-
----
-
-## Repository Layout
-
-```
+```text
 lua/comet/
-  init.lua        -- Public API (setup, open)
-  config.lua      -- Global defaults and option resolution
-  state.lua       -- All type definitions and runtime state
-  action.lua      -- Keybind handlers (move, run, esc, stop, toggle_mark)
-  context.lua     -- CometCtx builder passed to command actions
-  filter.lua      -- Fuzzy filtering for root commands and sub-menus
-  health.lua      -- :checkhealth comet
+  init.lua        public API
+  config.lua      defaults and option resolution
+  state.lua       types, live state, and persistent caches
+  action.lua      key-driven mutations
+  context.lua     context passed to command callbacks
+  filter.lua      root and sub-menu filtering
+  health.lua      checkhealth provider
   ui/
-    window.lua    -- nvim_open_win layout, focus helpers, buffer switching
-    events.lua    -- Autocmds and keymap registration
-    render.lua    -- Buffer writes, list rendering, extmark highlighting
+    window.lua    floating windows, buffers, focus, close
+    events.lua    keymaps and autocmds
+    render.lua    list rendering, output writes, highlights
 
-plugin/comet.lua  -- Plugin guard (sets vim.g.loaded_comet)
-tests/
-  comet/config_spec.lua
-  minimal_init.lua
+plugin/comet.lua  plugin load guard
+tests/            minimal init and Plenary specs
 ```
 
----
+## Core Flow
 
-## Architecture
+Open:
 
-### State
-
-All live UI state lives in a single private `S` table inside `lua/comet/state.lua`. Agents must never hold their own copy of `S` across async boundaries — always call `state.get()` fresh. The public helpers `state.current_items()`, `state.current_selected()`, and `state.current_sub()` resolve whether the root or the top of `sub_stack` is active.
-
-**Persistent cross-open state** lives in module-level tables:
-- `state.output_buf_cache` — maps `page_key → buf` so output survives close/reopen.
-- `state.running_tasks` — maps `page_key → RunningTaskInfo` for job lifecycle.
-- `state.persisted_states` — maps `session_id → saved UI state` for `remember_page`.
-
-### Data Flow: Open
-
-```
+```text
 comet.open(commands, opts)
-  → config.resolve(opts)          -- merge global defaults + local opts
-  → state.init(...)               -- build S, restore persisted_states if remember_page
-  → window.create_layout(...)     -- create 3 floating wins, mount output buf
-  → events.setup()                -- register autocmds + keymaps on input/list bufs
-  → render.list()                 -- draw left panel
-  → render.update_output_title()  -- draw output panel title
+  -> config.resolve(opts)
+  -> state.init(commands, opts, layout)
+  -> window.create_layout(width, height)
+  -> events.setup()
+  -> render.list()
+  -> render.update_output_title()
 ```
 
-### Data Flow: Action Execution
+Run:
 
+```text
+<CR>
+  -> action.run_selected()
+  -> context.make(trigger_name)
+  -> item.action(ctx)
+  -> ctx writes output, starts tasks, or opens sub-menus
 ```
-<CR> → action.run_selected()
-  → context.make(trigger_name)   -- bind ctx to current output_buf + page_key
-  → item.action(ctx)             -- user callback runs
-  → ctx:write / ctx:append       -- → render.out_write(target_buf, ...)
-  → ctx:start_async_task(...)    -- registers in state.running_tasks
-  → ctx:done / ctx:error         -- updates task status + calls render.update_output_title
-```
 
-### Data Flow: Sub-menus
+Close:
 
-`ctx:select(items, opts)` pushes a `SubMenuState` onto `S.sub_stack`. Navigation and filtering transparently use the top of the stack. `<Esc>` pops it via `action.handle_esc`. Output buffer routing: all sub-levels of a root command share the root command's cached output buffer (`sub_stack[1].page_key`).
-
-### Data Flow: Close
-
-```
+```text
 window.close()
-  → persist S into state.persisted_states[session_id] (if remember_page)
-  → clear CometUI augroup
-  → close all 3 wins, delete input/list bufs (output bufs are kept in cache)
-  → state.clear()                -- sets S = nil
+  -> persist page state when remember_page is enabled
+  -> clear the CometUI augroup
+  -> close floating windows
+  -> delete input and list buffers
+  -> keep cached output buffers
+  -> state.clear()
 ```
 
----
+## State Rules
 
-## Key Invariants
+- Live UI state is the private `S` table in `state.lua`.
+- `S` is nil when the UI is closed.
+- Do not keep `S` in long-lived upvalues or async callbacks.
+- Call `state.get()` only after checking `state.is_open()` when the UI may
+  have closed.
+- Output buffers are cached in `state.output_buf_cache` and must not be
+  deleted on close.
+- Running task metadata is stored in `state.running_tasks` by page key.
+- Page memory is stored in `state.persisted_states` by session id.
+- `ctx.target_buf` and `ctx.target_page_key` are captured at dispatch time.
+  They are safe for scheduled callbacks and job handlers.
 
-- **`S` is nil when UI is closed.** Every module that reads `S` must guard with `state.is_open()` before scheduling async callbacks — the UI may close while a job runs.
-- **Output buffers are never deleted.** Only `input_buf` and `list_buf` are deleted on close. Output buffers live in `state.output_buf_cache` indefinitely so background writes remain valid.
-- **`target_buf` in `ctx` is captured at action dispatch time.** The context is safe to use in `vim.schedule` / job callbacks after the UI closes.
-- **`page_key` uniqueness.** At root level, `page_key = root_title`. For the first sub-level, `page_key = trigger_name` (the root command's name). Deeper nesting reuses `sub_stack[1].page_key` so all nested levels share one output buffer.
-- **`block_while_running`** — when true, `action.run_selected` bails early if the current page has a task with `status == "running"`.
-- **Prompt bytes offset.** `S.prompt = "  "` (2 bytes). The input buffer is a `:h prompt-buffer`. Text before the prompt is off-limits; cursor clamping in events enforces this.
+## Page Keys
 
----
+- Root pages use `root_title`.
+- The first sub-menu under a root command uses the triggering command name.
+- Deeper sub-menus reuse the first sub-menu page key.
+- All nested levels under one root command share one output buffer.
 
-## Module Responsibilities (Summary)
+## Module Boundaries
 
-| Module | Owns |
-|---|---|
-| `init.lua` | Public API surface (`setup`, `open`) |
-| `config.lua` | Default values, `resolve()` merge logic |
-| `state.lua` | Type annotations, `S` lifecycle, persistent caches |
-| `action.lua` | All user-triggered mutations to `S` |
-| `context.lua` | Constructing the `CometCtx` passed to `action` callbacks |
-| `filter.lua` | Substring filter over `S.commands` and `sub.all_items` |
-| `ui/window.lua` | `nvim_open_win`, focus routing, buffer switching, `close()` |
-| `ui/events.lua` | Keymap and autocmd registration; output buf keymap injection |
-| `ui/render.lua` | All `nvim_buf_set_lines` and extmark writes |
+- `init.lua` exposes `setup()` and `open()`.
+- `config.lua` owns defaults and merge behavior.
+- `state.lua` owns public type annotations and runtime state.
+- `action.lua` owns selection, execution, stop, escape, and mark toggles.
+- `context.lua` builds the callback context.
+- `filter.lua` owns matching for root commands and active sub-menus.
+- `ui/window.lua` owns Neovim windows, buffers, focus, and teardown.
+- `ui/events.lua` owns keymaps and autocmds.
+- `ui/render.lua` owns buffer writes, extmarks, and titles.
 
----
+## Development Rules
 
-## Coding Conventions
+- Use Lua 5.1 syntax compatible with LuaJIT.
+- Do not add external runtime dependencies.
+- Keep public types in `state.lua`.
+- Avoid `require` cycles. Use lazy `require()` only when needed.
+- Guard win and buf API calls with validity checks or `pcall`.
+- Put UI autocmds in the `CometUI` augroup.
+- Do not add global commands unless the project explicitly needs them.
+- Keep output buffer persistence intact.
 
-- **Lua 5.1** (LuaJIT as embedded by Neovim). No external dependencies.
-- Formatter: **StyLua** (`stylua lua/ tests/ plugin/`). Config in `.stylua.toml`.
-- Linter: `luac -p` (syntax only) via `make lint`.
-- No `require` cycles — `ui/window.lua` lazy-requires `ui/events.lua` with `require(...)` inside a function body to break the cycle.
-- Module pattern: every file returns `local M = {}` and exposes only named functions on `M`.
-- Type annotations use EmmyLua/LuaLS style (`---@class`, `---@param`, `---@return`). All public types are declared in `state.lua`.
-
----
-
-## Development Workflow
+## Validation
 
 ```bash
-make test     # run plenary busted tests (requires nvim + plenary.nvim)
-make lint     # luac syntax check
-make format   # apply stylua
-make check    # stylua --check (CI dry-run)
+make ready
 ```
 
-Tests use `tests/minimal_init.lua` as the headless init file and plenary's busted runner.
-
----
-
-## What to Avoid
-
-- Do not add global vim commands or autocommands outside of the `CometUI` augroup.
-- Do not store references to `S` in upvalues that outlive the open/close cycle — always re-fetch via `state.get()`.
-- Do not delete output buffers; they are the persistence mechanism for background writes.
-- Do not bypass `pcall` on win/buf APIs — windows and buffers can be invalidated at any point.
-- Do not introduce external plugin dependencies. This is a zero-dependency library.
+This runs StyLua, Luacheck, and the Plenary test suite.

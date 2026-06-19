@@ -6,21 +6,30 @@ local render = require("comet.ui.render")
 local state = require("comet.state")
 local window = require("comet.ui.window")
 local api = vim.api
+
+---@param mode string|string[]
+---@param lhs string
+---@param fn function|string
+---@param buf integer
+local function km(mode, lhs, fn, buf)
+  vim.keymap.set(mode, lhs, fn, { buffer = buf, nowait = true })
+end
+
 local M = {}
 
 --- Inject output panel specific keybinds dynamically onto dynamically created buffers
 ---@param buf integer
 M.apply_output_keymaps = function(buf)
-  local function km(mode, lhs, fn)
-    vim.keymap.set(mode, lhs, fn, { buffer = buf, nowait = true })
+  local function km_fixed_buf(mode, lhs, fn)
+    km(mode, lhs, fn, buf)
   end
 
-  km("n", "<Esc>", window.unfocus_output)
-  km("n", "q", window.unfocus_output)
-  km("n", "<C-h>", window.unfocus_output)
-  km("n", "<C-l>", window.focus_output)
-  km({ "n", "i" }, "<C-i>", "<Nop>")
-  km("n", "<C-c>", action.stop_job)
+  km_fixed_buf("n", "<Esc>", window.unfocus_output)
+  km_fixed_buf("n", "q", window.unfocus_output)
+  km_fixed_buf("n", "<C-h>", window.unfocus_output)
+  km_fixed_buf("n", "<C-l>", window.focus_output)
+  km_fixed_buf({ "n", "i" }, "<C-i>", "<Nop>")
+  km_fixed_buf("n", "<C-c>", action.stop_job)
 end
 
 --- Bootstrap all event handlers onto the active layout
@@ -28,11 +37,6 @@ M.setup = function()
   local S = state.get()
   if not S then
     return
-  end
-
-  -- Setup Keymaps
-  local function km(mode, lhs, fn, buf)
-    vim.keymap.set(mode, lhs, fn, { buffer = buf, nowait = true })
   end
 
   for _, buf in ipairs({ S.input_buf, S.list_buf }) do
@@ -44,12 +48,19 @@ M.setup = function()
     km({ "n", "i" }, "<C-i>", "<Nop>", buf)
   end
 
-  km("i", "<C-j>", function()
+  km({ "i", "n" }, "<C-j>", function()
     action.move(1)
   end, S.input_buf)
-  km("i", "<C-k>", function()
+  km({ "i", "n" }, "<C-k>", function()
     action.move(-1)
   end, S.input_buf)
+  km({ "i", "n" }, "<C-n>", function()
+    action.move(1)
+  end, S.input_buf)
+  km({ "i", "n" }, "<C-p>", function()
+    action.move(-1)
+  end, S.input_buf)
+
   km("i", "<Down>", function()
     action.move(1)
   end, S.input_buf)
@@ -58,17 +69,17 @@ M.setup = function()
   end, S.input_buf)
   km("i", "<CR>", action.run_selected, S.input_buf)
 
-  km("n", "<C-j>", function()
-    action.move(1)
-  end, S.input_buf)
-  km("n", "<C-k>", function()
-    action.move(-1)
-  end, S.input_buf)
   km("n", "j", function()
     action.move(1)
   end, S.input_buf)
   km("n", "k", function()
     action.move(-1)
+  end, S.input_buf)
+  km("n", "<S-g>", function()
+    action.move_to_bottom()
+  end, S.input_buf)
+  km("n", "gg", function()
+    action.move_to_top()
   end, S.input_buf)
   km("n", "<CR>", action.run_selected, S.input_buf)
 
@@ -127,7 +138,12 @@ M.setup = function()
       if state.is_open() then
         local cur_S = state.get()
         if
-          cur_S.input_win and (closed == cur_S.input_win or closed == cur_S.list_win or closed == cur_S.output_win)
+          cur_S.input_win
+          and (
+            closed == cur_S.input_win
+            or closed == cur_S.list_win
+            or closed == cur_S.output_win
+          )
         then
           vim.schedule(window.close)
         end
