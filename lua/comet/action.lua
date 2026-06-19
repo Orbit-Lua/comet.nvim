@@ -168,31 +168,9 @@ M.run_selected = function()
 
       local on_sel = sub.on_select
       local callback_page_key = sub.page_key
-      local popped = table.remove(S.sub_stack)
-
-      local parent_title = S.root_title
-      local parent_key = S.root_title
-      if #S.sub_stack > 0 then
-        local parent = S.sub_stack[#S.sub_stack]
-        parent_title = parent.title
-        parent_key = S.sub_stack[1].page_key
-      end
-
-      pcall(
-        api.nvim_win_set_config,
-        S.input_win,
-        { title = " " .. parent_title .. " ", title_pos = "center" }
-      )
-      window.switch_output_buf(callback_page_key or parent_key)
-      window.put_input_query(popped.saved_query or "")
-
-      if #S.sub_stack > 0 then
-        filter.filter_sub(S.last_query)
-      else
-        filter.filter_commands(S.last_query or "")
-      end
-
+      window.switch_output_buf(callback_page_key)
       render.list()
+
       if on_sel and #selected_items > 0 then
         on_sel(selected_items, context.make(trigger_name, callback_page_key))
       end
