@@ -14,6 +14,7 @@
 ---@field block_while_running? boolean Prevent executing new commands while running
 ---@field remember_page? boolean Remember sub-page, selection, and query across sessions
 ---@field show_icons? boolean Show command icons in the list
+---@field default_icon? string Icon used when an item has none
 
 ---@class RunningTaskInfo
 ---@field abort_fn fun()|nil Function to call to signal the task to stop
@@ -45,6 +46,7 @@
 ---@field block_while_running boolean
 ---@field remember_page boolean
 ---@field show_icons boolean
+---@field default_icon? string
 ---@field current_page_key string
 ---@field session_id string
 ---@field ns integer
@@ -141,6 +143,7 @@ M.init = function(commands, opts, layout_opts)
     block_while_running = opts.block_while_running ~= false,
     remember_page = opts.remember_page ~= false,
     show_icons = opts.show_icons ~= false,
+    default_icon = opts.default_icon,
     current_page_key = root_title,
     ns = vim.api.nvim_create_namespace("CometUI"),
     out_ns = vim.api.nvim_create_namespace("CometUIOutput"),

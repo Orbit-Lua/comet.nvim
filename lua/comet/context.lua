@@ -125,10 +125,16 @@ M.make = function(trigger_name, page_key)
 
     update = function(self, items)
       if not state.is_open() or state.get() ~= S then
-        return
+        return false
       end
       local sub = state.current_sub()
-      if sub and sub.page_key == self.target_page_key then
+      if self._selected_sub and sub ~= self._selected_sub then
+        return false
+      end
+      if sub then
+        if sub.page_key ~= self.target_page_key then
+          return false
+        end
         sub.all_items = vim.deepcopy(items)
         for i, item in ipairs(sub.all_items) do
           if type(item) == "table" then
@@ -140,11 +146,15 @@ M.make = function(trigger_name, page_key)
         sub.selected = math.min(sub.selected, math.max(1, #sub.items))
         render.list()
       else
+        if self.target_page_key ~= S.root_title then
+          return false
+        end
         S.commands = vim.deepcopy(items)
         require("comet.filter").filter_commands(S.last_query)
         S.selected = math.min(S.selected, math.max(1, #S.filtered))
         render.list()
       end
+      return true
     end,
 
     select = function(self, items, opts)
@@ -165,7 +175,7 @@ M.make = function(trigger_name, page_key)
         bind_page(self, S.sub_stack[1].page_key)
       end
 
-      table.insert(S.sub_stack, {
+      local selected_sub = {
         all_items = all,
         items = vim.deepcopy(all),
         selected = 1,
@@ -176,7 +186,9 @@ M.make = function(trigger_name, page_key)
         saved_query = saved,
         multi_select = opts.multi_select or false,
         marked = {},
-      })
+      }
+      table.insert(S.sub_stack, selected_sub)
+      self._selected_sub = selected_sub
 
       window.switch_output_buf(self.target_page_key)
       self.target_buf = S.output_buf

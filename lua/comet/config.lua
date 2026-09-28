@@ -8,6 +8,7 @@ M.defaults = {
   block_while_running = true,
   remember_page = true,
   show_icons = true,
+  default_icon = nil,
 }
 
 ---@type CometOpts

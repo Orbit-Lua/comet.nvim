@@ -171,6 +171,16 @@ local function get_mark_key(item)
   return type(item) == "table" and item._idx or item
 end
 
+local function item_icon(S, item)
+  if not S.show_icons then
+    return nil
+  end
+  if type(item) == "table" and item.icon and item.icon ~= "" then
+    return item.icon
+  end
+  return S.default_icon
+end
+
 --- Render the left panel list based on current state
 M.list = function()
   local S = state.get()
@@ -195,13 +205,10 @@ M.list = function()
       mark = sub.marked[get_mark_key(item)] and "✓ " or "  "
     end
     mark_offsets[idx] = #mark
-    if type(item) == "string" then
-      table.insert(lines, "  " .. mark .. item)
-    else
-      local icon = S.show_icons and item.icon or nil
-      local icon_text = icon and icon ~= "" and (icon .. "  ") or ""
-      table.insert(lines, "  " .. mark .. icon_text .. item.name)
-    end
+    local icon = item_icon(S, item)
+    local icon_text = icon and icon ~= "" and (icon .. "  ") or ""
+    local name = type(item) == "string" and item or item.name
+    table.insert(lines, "  " .. mark .. icon_text .. name)
   end
 
   while #lines < S.list_h do
@@ -235,34 +242,22 @@ M.list = function()
       )
     end
 
-    if type(item) == "table" then
-      local icon = S.show_icons and item.icon or nil
-      local name_start = 2 + moff
-
-      if icon and icon ~= "" then
-        local icon_hl = item.icon_hl or "String"
-        local icon_start = 2 + moff
-        local icon_end = icon_start + #icon
-        api.nvim_buf_set_extmark(
-          S.list_buf,
-          S.ns,
-          row,
-          icon_start,
-          { end_col = icon_end, hl_group = icon_hl }
-        )
-        name_start = icon_end + 2
-      end
-
-      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, name_start, {
-        end_col = #lines[i],
-        hl_group = is_sel and "CursorLineNr" or "Normal",
+    local icon = item_icon(S, item)
+    local name_start = 2 + moff
+    if icon and icon ~= "" then
+      local icon_hl = type(item) == "table" and item.icon_hl or "String"
+      local icon_start = 2 + moff
+      local icon_end = icon_start + #icon
+      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, icon_start, {
+        end_col = icon_end,
+        hl_group = icon_hl or "String",
       })
-    else
-      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, 2 + moff, {
-        end_col = #lines[i],
-        hl_group = is_sel and "CursorLineNr" or "Normal",
-      })
+      name_start = icon_end + 2
     end
+    api.nvim_buf_set_extmark(S.list_buf, S.ns, row, name_start, {
+      end_col = #lines[i],
+      hl_group = is_sel and "CursorLineNr" or "Normal",
+    })
   end
 
   vim.bo[S.list_buf].modifiable = false

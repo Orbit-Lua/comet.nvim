@@ -56,6 +56,17 @@ describe("comet.context", function()
     assert.are.equal("running", state.running_tasks[ctx.page_id].status)
   end)
 
+  it("ignores an update from a picker that is no longer visible", function()
+    state.init({ { name = "Root" } }, {}, { list_h = 5 })
+    local ctx = context.make("Build")
+    local old = { page_key = "Build", items = {}, all_items = {}, selected = 1 }
+    local current = { page_key = "Build", items = {}, all_items = {}, selected = 1 }
+    ctx._selected_sub = old
+    table.insert(state.get().sub_stack, current)
+    assert.is_false(ctx:update({ { name = "Stale" } }))
+    assert.are.same({}, current.all_items)
+  end)
+
   it("does not let an old or aborted job change the current task status", function()
     state.init({}, {}, { list_h = 5 })
     local ctx = context.make("Run")

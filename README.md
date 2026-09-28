@@ -149,6 +149,7 @@ require("comet").setup({
 | `block_while_running` | `true` | Prevent a new command while the current page has a running task. |
 | `remember_page` | `true` | Restore page stack, selection, and query between opens. |
 | `show_icons` | `true` | Render command icons when provided. |
+| `default_icon` | unset | Optional fallback icon for items without an icon, including string items. |
 
 ## Command API
 
