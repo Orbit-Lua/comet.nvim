@@ -5,6 +5,56 @@ local state = require("comet.state")
 local api = vim.api
 local M = {}
 
+M.resize_layout = function()
+  local S = state.get()
+  if not S or not S.layout then
+    return
+  end
+  local w_total = math.floor(vim.o.columns * 0.86)
+  local h_total = math.floor(vim.o.lines * 0.78)
+  local list_w = math.floor(w_total * 0.38)
+  local output_w = w_total - list_w - 4
+  local col_start = math.floor((vim.o.columns - w_total) / 2)
+  local row_start = math.floor((vim.o.lines - h_total) / 2)
+  S.list_h = h_total - 3
+
+  local configs = {
+    {
+      win = S.input_win,
+      row = row_start,
+      col = col_start,
+      width = list_w,
+      height = 1,
+    },
+    {
+      win = S.list_win,
+      row = row_start + 3,
+      col = col_start,
+      width = list_w,
+      height = S.list_h,
+    },
+    {
+      win = S.output_win,
+      row = row_start,
+      col = col_start + list_w + 2,
+      width = output_w,
+      height = h_total,
+    },
+  }
+  for _, conf in ipairs(configs) do
+    if conf.win and api.nvim_win_is_valid(conf.win) then
+      pcall(api.nvim_win_set_config, conf.win, {
+        relative = "editor",
+        row = conf.row,
+        col = conf.col,
+        width = conf.width,
+        height = conf.height,
+      })
+    end
+  end
+  render.list()
+end
+
 --- Set focus to the output panel
 M.focus_output = function()
   local S = state.get()
@@ -49,12 +99,13 @@ M.switch_output_buf = function(page_key)
     return
   end
 
-  local buf = state.output_buf_cache[page_key]
+  local page_id = state.page_id(S.session_id, page_key)
+  local buf = state.output_buf_cache[page_id]
   if not buf or not api.nvim_buf_is_valid(buf) then
     buf = api.nvim_create_buf(false, true)
     vim.bo[buf].modifiable = false
     vim.bo[buf].buftype = "nofile"
-    state.output_buf_cache[page_key] = buf
+    state.output_buf_cache[page_id] = buf
 
     -- Lazy require to prevent circular dependency
     require("comet.ui.events").apply_output_keymaps(buf)
@@ -110,6 +161,7 @@ end
 ---@param h_total integer
 M.create_layout = function(w_total, h_total)
   local S = state.get()
+  S.layout = true
 
   local list_w = math.floor(w_total * 0.38)
   local output_w = w_total - list_w - 4

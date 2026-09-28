@@ -40,13 +40,13 @@
 ---@field last_query string
 ---@field prompt string
 ---@field list_h integer
----@field session_id string
 ---@field root_title string
 ---@field insert_mode boolean
 ---@field block_while_running boolean
 ---@field remember_page boolean
 ---@field show_icons boolean
 ---@field current_page_key string
+---@field session_id string
 ---@field ns integer
 ---@field out_ns integer
 ---@field default_abort_fn fun(job_id: integer, ctx: CometCtx)
@@ -73,10 +73,30 @@ M.running_tasks = {}
 ---@type table|nil
 M.persisted_states = {}
 
--- ── Active UI State ───────────────────────────────────────────────────────────
-
 ---@type CometState|nil
 local S = nil
+
+--- Return an unambiguous identity for a page within a session.
+---@param session_id string
+---@param page_key string
+---@return string
+M.page_id = function(session_id, page_key)
+  return tostring(#session_id)
+    .. ":"
+    .. session_id
+    .. tostring(#page_key)
+    .. ":"
+    .. page_key
+end
+
+M.current_page_id = function()
+  if not S then
+    return nil
+  end
+  return M.page_id(S.session_id, S.current_page_key)
+end
+
+-- ── Active UI State ───────────────────────────────────────────────────────────
 
 --- Check if the UI is currently open
 ---@return boolean
@@ -127,8 +147,8 @@ M.init = function(commands, opts, layout_opts)
     default_abort_fn = function(job_id, ctx)
       vim.fn.jobstop(job_id)
       ctx:append("\n[Process Terminated by User]")
-      if M.running_tasks[ctx.target_page_key] then
-        M.running_tasks[ctx.target_page_key].status = nil
+      if M.running_tasks[ctx.page_id] then
+        M.running_tasks[ctx.page_id].status = "abort"
       end
     end,
   }
@@ -141,6 +161,11 @@ M.init = function(commands, opts, layout_opts)
     S.last_query = p_state.last_query
     S.current_page_key = p_state.current_page_key
   end
+end
+
+M.page_id_for = function(page_key)
+  local active = M.get()
+  return M.page_id(active.session_id, page_key)
 end
 
 --- Helper to get current active list of items (root or sub-menu)

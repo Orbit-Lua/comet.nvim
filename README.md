@@ -25,6 +25,8 @@ Neovim without becoming a full task runner.
   through nested selections.
 - Nested submenus through `ctx:select()`, including optional multi-select mode.
 - Async task tracking with status in the output title and `<C-c>` stop support.
+- Session-scoped page buffers and task state, including same-named pages.
+- Line input for interactive jobs from the focused output panel.
 - Session memory for current page, selection, and query.
 - Zero runtime plugin dependencies.
 
@@ -170,6 +172,9 @@ The command context provides:
 | `ctx:append(line)` | Append a string to the output buffer. |
 | `ctx:clear()` | Clear the output buffer. |
 | `ctx:start_async_task(job_id, abort_fn?)` | Mark a job as running and optionally provide custom cancellation. |
+| `ctx:terminal(job_id, opts?)` | Enable line input for a running job. `opts.on_input(text)` can send input through a custom transport; by default Comet sends the line to `job_id` with `chansend`. |
+| `ctx:set_status(status)` | Set the task status shown in the output title. |
+| `ctx:update(items)` | Replace the current command list or matching submenu items. |
 | `ctx:done()` | Mark the current task as done. |
 | `ctx:error()` | Mark the current task as failed. |
 | `ctx:select(items, opts)` | Push a nested selection page. |
@@ -177,6 +182,10 @@ The command context provides:
 `ctx:select()` accepts string items or tables with `name` and `desc`. Pass
 `multi_select = true` to enable marking items with `<Tab>`; the `on_select`
 callback then receives a list of selected items.
+
+For an interactive job, call `ctx:terminal(job_id)` after starting it. Focus the
+output panel and press `i` or `a` to enter a line; Comet sends it to the job.
+Use `opts.on_input` when the job uses a custom input transport.
 
 ## Keymaps
 

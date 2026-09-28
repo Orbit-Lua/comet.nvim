@@ -30,6 +30,8 @@ M.apply_output_keymaps = function(buf)
   km_fixed_buf("n", "<C-l>", window.focus_output)
   km_fixed_buf({ "n", "i" }, "<C-i>", "<Nop>")
   km_fixed_buf("n", "<C-c>", action.stop_job)
+  km_fixed_buf("n", "i", action.send_task_input)
+  km_fixed_buf("n", "a", action.send_task_input)
 end
 
 --- Bootstrap all event handlers onto the active layout
@@ -147,6 +149,15 @@ M.setup = function()
         then
           vim.schedule(window.close)
         end
+      end
+    end,
+  })
+
+  api.nvim_create_autocmd("VimResized", {
+    group = aug,
+    callback = function()
+      if state.is_open() then
+        window.resize_layout()
       end
     end,
   })

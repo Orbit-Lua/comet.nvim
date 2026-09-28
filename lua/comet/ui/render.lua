@@ -78,8 +78,9 @@ M.update_output_title = function()
     title = title .. "Main"
   end
 
-  local status = state.running_tasks[S.current_page_key]
-      and state.running_tasks[S.current_page_key].status
+  local page_id = state.page_id(S.session_id, S.current_page_key)
+  local status = state.running_tasks[page_id]
+      and state.running_tasks[page_id].status
     or nil
   local is_focused = api.nvim_get_current_win() == S.output_win
 

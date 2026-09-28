@@ -96,29 +96,49 @@ end
 --- Safely stop a running job using its context
 M.stop_job = function()
   local S = state.get()
-  if
-    not (S and S.current_page_key and state.running_tasks[S.current_page_key])
-  then
+  local page_id = state.page_id(S.session_id, S.current_page_key)
+  if not (S and S.current_page_key and state.running_tasks[page_id]) then
     return
   end
 
-  local task = state.running_tasks[S.current_page_key]
+  local task = state.running_tasks[page_id]
   if task.abort_fn and task.status == "running" then
     task.abort_fn()
-    task.status = nil
+    task.status = "abort"
     render.update_output_title()
   end
+end
+
+--- Prompt for one line and send it to the interactive task on this page.
+M.send_task_input = function()
+  local S = state.get()
+  local page_id = state.page_id(S.session_id, S.current_page_key)
+  local task = state.running_tasks[page_id]
+  if not (task and task.status == "running" and task.input_fn) then
+    return
+  end
+
+  vim.ui.input({ prompt = task.input_prompt or "stdin> " }, function(input)
+    if input == nil then
+      return
+    end
+    local current = state.running_tasks[page_id]
+    if current == task and task.status == "running" then
+      task.input_fn(input)
+    end
+  end)
 end
 
 --- Execute the currently focused item
 M.run_selected = function()
   local S = state.get()
+  local page_id = state.page_id(S.session_id, S.current_page_key)
 
   -- Block if running
   if
     S.block_while_running
-    and state.running_tasks[S.current_page_key]
-    and state.running_tasks[S.current_page_key].status == "running"
+    and state.running_tasks[page_id]
+    and state.running_tasks[page_id].status == "running"
   then
     vim.api.nvim_echo({
       {
