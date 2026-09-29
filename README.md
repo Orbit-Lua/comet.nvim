@@ -1,224 +1,148 @@
 # comet.nvim
 
-*A small command palette for Neovim tasks with persistent output panels.*
+<!-- markdownlint-disable MD013 -->
 
-![Neovim](https://img.shields.io/badge/Neovim-%3E%3D0.10-57A143?style=flat-square&logo=neovim&logoColor=white)
-![Lua](https://img.shields.io/badge/Lua-plugin-2C2D72?style=flat-square&logo=lua&logoColor=white)
-![License](https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square)
+[![Neovim 0.10+](https://img.shields.io/badge/Neovim-0.10%2B-57A143?style=flat-square&logo=neovim&logoColor=white)](https://neovim.io/)
+[![Lua plugin](https://img.shields.io/badge/Lua-plugin-2C2D72?style=flat-square&logo=lua&logoColor=white)](https://www.lua.org/)
+[![GPL-3.0 license](https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square)](LICENSE)
 
-[Features](#features) - [Installation](#installation) - [Usage](#usage) - [Development](#development)
-
-`comet.nvim` opens a focused two-panel floating UI: search and select commands on
-the left, stream command output on the right. It is designed for project tasks,
-build steps, scripts, and small interactive workflows that should stay inside
-Neovim without becoming a full task runner.
-
-> [!NOTE]
-> The plugin exposes a Lua API. It does not register a user command by default;
-> call `require("comet").open()` from your own mappings, commands, or plugin
-> config.
-
-## Features
-
-- Searchable command list with optional icons and descriptions.
-- Output buffers are cached per page, so results remain available while moving
-  through nested selections.
-- Nested submenus through `ctx:select()`, including optional multi-select mode.
-- Async task tracking with status in the output title and `<C-c>` stop support.
-- Session-scoped page buffers and task state, including same-named pages.
-- Line input for interactive jobs from the focused output panel.
-- Session memory for current page, selection, and query.
-- Zero runtime plugin dependencies.
+`comet.nvim` is a two-panel command palette for Neovim. Search and select
+actions on the left; keep each action's output on the right. It suits project
+commands and interactive local jobs that benefit from a small UI and persistent
+output. It has no runtime plugin dependencies and registers no user command by
+default.
 
 ## Requirements
 
-- Neovim 0.10 or newer is recommended.
-- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) is only needed for
-  running the test suite.
-- Development tooling uses `stylua` and `luacheck`.
+- Neovim **0.10 or newer** is recommended for the UI and autocmd behavior.
+- A font with the glyphs you choose if you use icon fields; icons are optional.
+- For development only:
+  [plenary.nvim](https://github.com/nvim-lua/plenary.nvim), `stylua`, and
+  `luacheck`.
 
-## Installation
+## Quick start
 
-Using [lazy.nvim](https://github.com/folke/lazy.nvim):
+Install with [lazy.nvim](https://github.com/folke/lazy.nvim) and add a mapping
+that opens a small command list:
 
 ```lua
 {
-  "your-user/comet.nvim",
+  "Orbit-Lua/comet.nvim",
   config = function()
-    require("comet").setup({
-      session_id = "Tasks",
+    local comet = require("comet")
+
+    vim.keymap.set("n", "<leader>tt", function()
+      comet.open({
+        {
+          name = "Say hello",
+          desc = "Write a line in the output panel",
+          action = function(ctx)
+            ctx:clear()
+            ctx:append("Hello from Comet")
+          end,
+        },
+      }, {
+        session_id = "Project Tasks",
+        default_icon = "󰈚 ",
+      })
+    end, { desc = "Open project tasks" })
+  end,
+}
+```
+
+Press `<leader>tt`, then `<CR>` on **Say hello**. The right panel should show
+`Hello from Comet`. Open the same session again to close it. Give separate
+workspaces different `session_id` values to keep their pages, task state, and
+output separate.
+
+## What the palette supports
+
+- Fuzzy filtering of root actions and submenu items, including item
+  descriptions.
+- Nested selection pages with optional `<Tab>` multi-select.
+- Output buffers and remembered page, selection, and query per session.
+- Async job status, `<C-c>` cancellation, and line input for interactive jobs.
+- Dynamic list updates through `ctx:update(items)`; updates from a page that is
+  no longer visible are ignored.
+- Per-item icons and an optional session `default_icon` for rows without one,
+  including string items.
+
+### Commands and context
+
+Each root command has a name and an `action(ctx)` callback. `icon`, `icon_hl`,
+and `desc` are optional:
+
+```lua
+{
+  name = "Build",
+  icon = "󰒓 ",
+  desc = "Build the selected project",
+  action = function(ctx)
+    ctx:select({ "Debug", "Release" }, {
+      title = "Build configuration",
+      on_select = function(configuration, child)
+        child:append("Selected " .. configuration)
+      end,
     })
   end,
 }
 ```
 
-For local development, point your plugin manager at this checkout or add the
-repository root to `runtimepath`.
-
-## Usage
-
-Create commands and open the palette from a mapping:
-
-```lua
-local comet = require("comet")
-
-vim.keymap.set("n", "<leader>tt", function()
-  comet.open({
-    {
-      name = "Run tests",
-      icon = "T",
-      desc = "Run the project test suite",
-      action = function(ctx)
-        ctx:clear()
-        ctx:append("$ make test")
-
-        local function append_data(data)
-          local lines = vim.tbl_filter(function(line)
-            return line ~= ""
-          end, data)
-          if #lines > 0 then
-            ctx:append(table.concat(lines, "\n"))
-          end
-        end
-
-        local job = vim.fn.jobstart({ "make", "test" }, {
-          stdout_buffered = false,
-          stderr_buffered = false,
-          on_stdout = function(_, data)
-            vim.schedule(function()
-              append_data(data)
-            end)
-          end,
-          on_stderr = function(_, data)
-            vim.schedule(function()
-              append_data(data)
-            end)
-          end,
-          on_exit = function(_, code)
-            vim.schedule(function()
-              if code == 0 then
-                ctx:done()
-              else
-                ctx:error()
-              end
-            end)
-          end,
-        })
-
-        ctx:start_async_task(job)
-      end,
-    },
-    {
-      name = "Build target",
-      desc = "Choose a build configuration",
-      action = function(ctx)
-        ctx:select({ "Debug", "Release" }, {
-          title = "Configuration",
-          on_select = function(item, child_ctx)
-            child_ctx:write("Selected " .. item)
-          end,
-        })
-      end,
-    },
-  }, {
-    session_id = "Project Tasks",
-  })
-end)
-```
-
-## Configuration
-
-Global defaults are set with `setup()` and can be overridden per `open()` call:
-
-```lua
-require("comet").setup({
-  session_id = "Comet",
-  root_title = nil,
-  insert_mode = true,
-  block_while_running = true,
-  remember_page = true,
-  show_icons = true,
-})
-```
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `session_id` | `"Comet"` | Session name and default root title. |
-| `root_title` | `session_id` | Optional title for the root page. |
-| `insert_mode` | `true` | Enter insert mode when the palette opens. |
-| `block_while_running` | `true` | Prevent a new command while the current page has a running task. |
-| `remember_page` | `true` | Restore page stack, selection, and query between opens. |
-| `show_icons` | `true` | Render command icons when provided. |
-| `default_icon` | unset | Optional fallback icon for items without an icon, including string items. |
-
-## Command API
-
-Each root command is a table:
-
-```lua
-{
-  name = "Command name",
-  icon = "C",
-  icon_hl = "String",
-  desc = "Optional text used by filtering",
-  action = function(ctx) end,
-}
-```
-
-The command context provides:
-
-| Method | Purpose |
+| Context method | Use |
 | --- | --- |
-| `ctx:write(lines)` | Append a string or list of lines to the output buffer. |
-| `ctx:append(line)` | Append a string to the output buffer. |
-| `ctx:clear()` | Clear the output buffer. |
-| `ctx:start_async_task(job_id, abort_fn?)` | Mark a job as running and optionally provide custom cancellation. |
-| `ctx:terminal(job_id, opts?)` | Enable line input for a running job. `opts.on_input(text)` can send input through a custom transport; by default Comet sends the line to `job_id` with `chansend`. |
-| `ctx:set_status(status)` | Set the task status shown in the output title. |
-| `ctx:update(items)` | Replace the current command list or matching submenu items. |
-| `ctx:done()` | Mark the current task as done. |
-| `ctx:error()` | Mark the current task as failed. |
-| `ctx:select(items, opts)` | Push a nested selection page. |
+| `ctx:append(line)` / `ctx:write(lines)` | Append a line or string/list of lines to this page's output. |
+| `ctx:clear()` | Clear this page's output. |
+| `ctx:select(items, opts)` | Open a nested selection page. Use `multi_select = true` when the callback should receive a list of marked items. |
+| `ctx:update(items)` | Replace the active list. Returns `false` if this context's page is no longer visible. |
+| `ctx:start_async_task(job_id, abort_fn?)` | Track a running Neovim job; Comet uses `jobstop` by default when stopped. |
+| `ctx:terminal(job_id, opts?)` | Allow line input for that job from the output panel; `opts.on_input` can provide another transport. |
+| `ctx:done(job_id?)` / `ctx:error(job_id?)` | Mark the task result. Pass the job ID when a stopped job might finish after a newer one. |
+| `ctx:set_status(status)` | Set the status displayed in the output title. |
 
-`ctx:select()` accepts string items or tables with `name` and `desc`. Pass
-`multi_select = true` to enable marking items with `<Tab>`; the `on_select`
-callback then receives a list of selected items.
+Submenu items may be strings or tables with `name` and optional `desc`/`icon`.
+`ctx:select()` calls `on_select(item, child_ctx)`; in multi-select mode it calls
+`on_select(items, child_ctx)`.
 
-For an interactive job, call `ctx:terminal(job_id)` after starting it. Focus the
-output panel and press `i` or `a` to enter a line; Comet sends it to the job.
-Use `opts.on_input` when the job uses a custom input transport.
+For an interactive job, start it with `vim.fn.jobstart`, call
+`ctx:start_async_task(job_id)`, then `ctx:terminal(job_id)`. Focus the output
+panel and press `i` or `a` to send a line to the job. Pass `on_input` to
+`ctx:terminal` if input uses another transport.
 
 ## Keymaps
 
 | Key | Action |
 | --- | --- |
-| `<CR>` | Run the selected item. |
-| `<C-j>`, `<C-n>`, `<Down>` | Move down. |
-| `<C-k>`, `<C-p>`, `<Up>` | Move up. |
-| `gg`, `G` | Jump to top or bottom in normal mode. |
-| `<Tab>` | Toggle a mark in multi-select mode. |
-| `<C-l>` | Focus the output panel. |
-| `<C-h>`, `q`, `<Esc>` | Return from output focus, pop a submenu, or close the UI. |
-| `<C-c>` | Stop the running task for the current output page. |
+| `<CR>` | Run the selected action. |
+| `<C-j>`, `<C-n>`, `<Down>` / `<C-k>`, `<C-p>`, `<Up>` | Move through results. |
+| `gg`, `G` | Jump to the first or last result in normal mode. |
+| `<Tab>` | Mark an item in a multi-select page. |
+| `<C-l>` / `<C-h>` | Focus the output panel / return to the input panel. |
+| `i`, `a` in the output panel | Prompt for a line of input when a terminal job is active. |
+| `<C-c>` | Stop the current page's running job. |
+| `<Esc>`, `q` | Leave the output panel, pop a submenu, or close the palette. |
 
-## Health Check
+## Configuration
 
-Run Neovim's health command to verify the recommended version:
+`setup(opts)` sets global defaults; options passed to `open(commands, opts)`
+override them for that call. Calling `setup()` is optional.
 
-```vim
-:checkhealth comet
-```
+| Option | Default | Effect |
+| --- | --- | --- |
+| `session_id` | `"Comet"` | Namespace for remembered UI state, output, and tasks. |
+| `root_title` | `session_id` | Title of the root page. |
+| `insert_mode` | `true` | Enter insert mode when the palette opens. |
+| `block_while_running` | `true` | Prevent starting another action on the current page while a task runs. |
+| `remember_page` | `true` | Restore the page stack, selection, and query on reopen. |
+| `show_icons` | `true` | Render provided icons. |
+| `default_icon` | unset | Fallback icon for an item without its own icon. |
+
+Run `:checkhealth comet` to inspect Neovim compatibility.
 
 ## Development
 
-Run commands from the repository root:
+From the repository root, run `make all` to format Lua source, lint it, and
+execute Plenary specs under `tests/comet/`. `make fmt`, `make lint`, and
+`make test` run the stages separately. See [AGENTS.md](AGENTS.md) for editing and
+validation rules.
 
-```bash
-make fmt
-make lint
-make test
-make all
-```
-
-`make all` formats Lua files, runs `luacheck`, and executes the Plenary specs
-under `tests/comet/`.
+This project is licensed under [GPL-3.0](LICENSE).

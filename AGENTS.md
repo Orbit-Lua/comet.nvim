@@ -1,146 +1,79 @@
 # AGENTS.md
 
-## Project Overview
+## Scope and ownership
 
-`comet.nvim` is a Lua Neovim plugin that provides a floating two-panel command
-palette. Users pass command specs to `require("comet").open()`: the left panel
-filters and selects commands or submenu items, and the right panel stores command
-output buffers by page.
+`comet.nvim` is a dependency-free Lua command palette. Consumers call
+`require("comet").open(commands, opts)`; the plugin does not register a user
+command. Keep its API generic. Put project-specific command behavior in the
+consuming plugin, such as `dotnet-cli.nvim`.
 
-The plugin has no runtime plugin dependencies. Tests use Plenary through
-`tests/minimal_init.lua`.
+| Change | Owner |
+| --- | --- |
+| `setup()`/`open()` and launch sequence | `lua/comet/init.lua` |
+| Option defaults and merging | `lua/comet/config.lua` |
+| Session, page, output-buffer, and task identity | `lua/comet/state.lua` |
+| Command context methods and nested selection | `lua/comet/context.lua` |
+| Movement, execution, cancellation, multi-select | `lua/comet/action.lua` |
+| Root and submenu filtering | `lua/comet/filter.lua` |
+| Floating windows, focus, resize, teardown | `lua/comet/ui/window.lua` |
+| Keymaps and autocmds | `lua/comet/ui/events.lua` |
+| Rows, icons, output text, status titles | `lua/comet/ui/render.lua` |
+| `:checkhealth comet` | `lua/comet/health.lua` |
 
-## Repository Layout
+`plugin/comet.lua` is the loader guard. Plenary specs live in `tests/comet/`;
+`tests/minimal_init.lua` adds this checkout and a local Plenary installation to
+`runtimepath`.
 
-- `plugin/comet.lua` is the plugin loader guard. It does not register commands.
-- `lua/comet/init.lua` exposes `setup()` and `open()`.
-- `lua/comet/config.lua` owns default options and option merging.
-- `lua/comet/state.lua` owns public type annotations and runtime state.
-- `lua/comet/action.lua` owns selection movement, execution, cancellation,
-  escape handling, and multi-select marking.
-- `lua/comet/context.lua` builds the command callback context.
-- `lua/comet/filter.lua` owns root and submenu filtering.
-- `lua/comet/ui/window.lua` owns floating windows, buffers, focus, and teardown.
-- `lua/comet/ui/events.lua` owns keymaps and autocmds.
-- `lua/comet/ui/render.lua` owns list rendering, output writes, extmarks, and
-  output titles.
-- `lua/comet/health.lua` owns `:checkhealth comet`.
-- `tests/comet/` contains Plenary specs.
+## Behavior to preserve
 
-## Setup Commands
+- Keep `setup()`, `open()`, command specs, and `CometCtx` methods compatible
+  unless the task explicitly changes the API. Do not add a global command for a
+  consumer's workflow.
+- Opening the active `session_id` toggles the UI closed; opening a different
+  session switches to it. Output buffers and running tasks belong to a session
+  and page. With `remember_page = true`, reopening restores the page stack,
+  selection, and query.
+- A submenu can contain strings or tables. Multi-select uses `<Tab>` and passes
+  a list to `on_select`. `<Esc>`/`q` leaves output focus or pops a submenu
+  before closing the root.
+- `block_while_running = true` blocks another action only on a page with an
+  active task. `<C-c>` cancels that page's task. Completion from an old or
+  canceled job must not change a newer task's status.
+- `ctx:update(items)` applies only while its originating view is active; an
+  asynchronous result must not overwrite another page. Explicit item icons take
+  precedence over the optional session `default_icon`.
+- Interactive jobs use `ctx:start_async_task(job_id)` and
+  `ctx:terminal(job_id)`; input from `i`/`a` in the output panel goes to that
+  job. Keep output buffers and task status usable after closing and reopening
+  the palette.
+- Preserve zero runtime plugin dependencies. `plenary.nvim`, StyLua, and
+  Luacheck are development tools only.
 
-Install the development tools outside this repository:
+Keep the public option and keymap descriptions in `README.md` aligned with
+implementation changes. Keep changes inside the owning module; avoid an
+unrelated UI or state refactor for a focused fix.
 
-```bash
-stylua --version
-luacheck --version
-nvim --version
-```
+## Validation
 
-Plenary must be available on the local Neovim runtime path. The test bootstrap
-looks first under Neovim's data directory, then under:
+From this repository root:
 
-```text
-~/.local/share/nvim/lazy/plenary.nvim
-```
-
-There is no package install step for this repository.
-
-## Development Workflow
-
-Run all commands from the repository root.
-
-Useful loops:
-
-```bash
-make fmt
-make lint
-make test
-```
-
-Full pre-handoff check:
-
-```bash
+```sh
 make all
 ```
 
-`make all` runs formatting, linting, and the Plenary test suite.
+`make all` runs `make fmt` (rewrites Lua files), `make lint`
+(`luacheck lua --globals vim`), and `make test` (Plenary specs), in that order.
+Use `make lint` and `make test` for focused iteration;
+`stylua --check lua/ --config-path=.stylua.toml` checks formatting without
+rewriting.
 
-## Testing Instructions
+Add focused specs in `tests/comet/` for changed filtering, action dispatch,
+session isolation, context updates, rendering, job lifecycle, input, and focus
+behavior. Test a real floating-window path when the change depends on it. For
+documentation-only changes, check local links and `git diff --check` instead of
+running mutating formatting. `tests/minimal_init.lua` searches Neovim's
+lazy.nvim data directory and `~/.local/share/nvim/lazy/plenary.nvim` for
+Plenary.
 
-Run the full test suite with:
-
-```bash
-make test
-```
-
-The underlying command is:
-
-```bash
-nvim --headless -u tests/minimal_init.lua \
-  -c "PlenaryBustedDirectory tests/comet { minimal_init = 'tests/minimal_init.lua' }"
-```
-
-Add or update focused specs in `tests/comet/` for behavior changes. Prefer
-testing state, filtering, action dispatch, and context behavior directly unless
-the change specifically needs a full floating-window UI path.
-
-## Code Style
-
-- Format Lua with StyLua using `.stylua.toml`.
-- Lint runtime Lua with `luacheck lua --globals vim`.
-- Keep line width near 80 columns, two-space indentation, Unix line endings, and
-  double quotes when StyLua prefers them.
-- Keep runtime modules dependency-free unless the user explicitly accepts a new
-  dependency.
-- Preserve the public behavior of `setup()`, `open()`, command specs, and
-  `CometCtx` methods unless the requested change requires an API change.
-- Keep UI responsibilities split between `ui/window.lua`, `ui/events.lua`, and
-  `ui/render.lua`.
-
-## API Notes
-
-Root commands are tables with `name`, optional `icon`, optional `icon_hl`,
-optional `desc`, and an `action(ctx)` callback.
-
-`CometCtx` supports:
-
-- `write(lines)`, `append(line)`, and `clear()` for output buffers.
-- `start_async_task(job_id, abort_fn?)`, `done()`, and `error()` for task state.
-- `select(items, opts)` for nested selection pages.
-
-Submenu items can be strings or tables. In multi-select mode, `<Tab>` marks
-items and `on_select` receives the selected item list.
-
-## UI Behavior To Preserve
-
-- Opening the same `session_id` while Comet is open toggles the UI closed.
-- Opening a different `session_id` closes the current UI and opens the new one.
-- Output buffers are cached by page key.
-- `remember_page = true` preserves submenu stack, selection, query, and current
-  output page across closes.
-- `block_while_running = true` prevents running another command on a page with
-  an active task.
-- `<Esc>` or `q` pops a submenu first, then closes at the root.
-- `<C-c>` stops the running task for the current output page.
-
-## Validation Before Handoff
-
-Run:
-
-```bash
-make all
-```
-
-If a tool is unavailable, mention the exact command that could not be run and
-the reason from the shell output.
-
-## Change Guidance
-
-- Keep edits focused on the existing module boundaries.
-- Avoid broad refactors unless they are required for the requested behavior.
-- Do not add global user commands unless explicitly requested.
-- Avoid changing keymaps or public option names without updating README examples
-  and tests.
-- Do not rewrite user output buffers, task persistence, or cancellation behavior
-  casually; those are user-visible workflow details.
+Preserve unrelated working-tree changes. Report checks run and any skipped check
+with the missing tool or exact failure.
