@@ -104,6 +104,9 @@ M.setup = function()
     group = aug,
     buffer = S.input_buf,
     callback = function()
+      if require("comet.command").update() then
+        return
+      end
       local line = api.nvim_get_current_line()
       local query = line:sub(prompt_bytes + 1)
       S.last_query = query
@@ -129,6 +132,7 @@ M.setup = function()
       if cursor[2] < min_col then
         pcall(api.nvim_win_set_cursor, 0, { cursor[1], min_col })
       end
+      require("comet.command").update()
     end,
   })
 

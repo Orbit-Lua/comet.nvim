@@ -15,6 +15,7 @@
 ---@field update fun(self: CometCtx, items: any[])
 ---@field set_status fun(self: CometCtx, status: string)
 ---@field select fun(self: CometCtx, items: any[], opts: CometSelectOpts)
+---@field command fun(self: CometCtx, opts: table) Open a transient command page.
 
 ---@class CometSelectOpts
 ---@field title? string
@@ -200,6 +201,10 @@ M.make = function(trigger_name, page_key)
       )
       render.list()
       window.focus_input()
+    end,
+
+    command = function(self, opts)
+      require("comet.command").open(self, opts)
     end,
   }
 

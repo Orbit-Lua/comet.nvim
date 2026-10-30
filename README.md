@@ -65,6 +65,29 @@ output separate.
 - Per-item icons and an optional session `default_icon` for rows without one,
   including string items.
 
+### Command-entry pages
+
+Call `ctx:command(opts)` from an action to open a transient command page.
+Provide `opts.complete(request, reply)` and `opts.submit(text, ctx)` callbacks.
+Use `opts.title` to set the page title.
+Use `opts.initial` to set transient initial input, such as a command prefix.
+
+The completion request contains `text` and a zero-based UTF-8 byte `cursor`.
+Call `reply(items, error)` when results are ready.
+Each item contains `label`, replacement `text`, and optional `start` and `finish`.
+Replacement ranges are zero-based, end-exclusive UTF-8 byte offsets.
+Omitted ranges insert at the captured cursor.
+Return a cancellation function from `complete` to cancel obsolete work.
+Results from another input revision, cursor, page, or session are ignored.
+
+Press Tab to accept the selected suggestion.
+Press Enter to submit the input without accepting a suggestion first.
+Existing selection pages keep their Tab multi-select behavior.
+Command text is cleared after submission and is not restored after closing.
+Closing a command page restores its parent page on the next open.
+Output and task cancellation retain their existing page ownership.
+Consumers own command parsing, provider errors, execution, and credential handling.
+
 ### Commands and context
 
 Each root command has a name and an `action(ctx)` callback. `icon`, `icon_hl`,

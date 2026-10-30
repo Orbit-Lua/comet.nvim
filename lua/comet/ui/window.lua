@@ -130,6 +130,7 @@ M.close = function()
   end
   local S = state.get()
 
+  require("comet.command").close()
   if S.remember_page then
     state.persisted_states[S.session_id] = {
       sub_stack = vim.deepcopy(S.sub_stack),

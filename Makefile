@@ -15,5 +15,4 @@ lint:
 	$(LUACHECK) lua --globals vim
 
 test:
-	nvim --headless -u tests/minimal_init.lua \
-		-c "PlenaryBustedDirectory tests/comet { minimal_init = 'tests/minimal_init.lua' }"
+	just test

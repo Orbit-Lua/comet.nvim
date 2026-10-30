@@ -57,6 +57,7 @@ end
 --- Handle `<Esc>` or `q`: Either pop the menu stack or close the UI
 M.handle_esc = function()
   local S = state.get()
+  require("comet.command").leave()
   if #S.sub_stack > 0 then
     local popped = table.remove(S.sub_stack)
     if popped.on_cancel then
@@ -150,6 +151,9 @@ M.run_selected = function()
   end
 
   local was_insert = api.nvim_get_mode().mode == "i"
+  if require("comet.command").submit() then
+    return
+  end
   local items = state.current_items()
   local sel = state.current_selected()
   if #items == 0 then
@@ -250,6 +254,9 @@ end
 
 --- Toggle checkbox for current item in multi-select mode
 M.toggle_mark = function()
+  if require("comet.command").accept() then
+    return
+  end
   local sub = state.current_sub()
   if not sub or not sub.multi_select then
     return
