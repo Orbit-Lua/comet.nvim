@@ -130,23 +130,115 @@ M.send_task_input = function()
   end)
 end
 
+--- Warn and return true when a task on this page blocks a new action.
+---@param S CometState
+---@param page_id string
+---@return boolean
+local function blocked_by_task(S, page_id)
+  local task = state.running_tasks[page_id]
+  if not (S.block_while_running and task and task.status == "running") then
+    return false
+  end
+
+  vim.api.nvim_echo({
+    {
+      " Task is still running. Press <C-c> to stop it first.",
+      "DiagnosticWarn",
+    },
+  }, false, {})
+  return true
+end
+
+---@param item CometItem
+---@return string
+local function item_name(item)
+  return type(item) == "table" and (item.name or "Item") or tostring(item)
+end
+
+--- Return the marked items in list order, or the focused item when none is
+--- marked, and the name of the resulting trigger.
+---@param sub SubMenuState
+---@param item CometItem
+---@return CometItem[] items
+---@return string trigger_name
+local function marked_items(sub, item)
+  if vim.tbl_count(sub.marked) == 0 then
+    return { item }, item_name(item)
+  end
+
+  local selected = {}
+  for _, candidate in ipairs(sub.all_items) do
+    local key = type(candidate) == "table" and candidate._idx or candidate
+    if sub.marked[key] then
+      selected[#selected + 1] = candidate
+    end
+  end
+  if #selected > 1 then
+    return selected, "Multi(" .. #selected .. ")"
+  end
+  return selected, item_name(selected[1])
+end
+
+---@param sub SubMenuState
+---@param item CometItem
+local function run_multi_select(sub, item)
+  local selected, trigger_name = marked_items(sub, item)
+  local on_select = sub.on_select
+  local callback_page_key = sub.page_key
+  window.switch_output_buf(callback_page_key)
+  render.list()
+
+  if on_select and #selected > 0 then
+    on_select(selected, context.make(trigger_name, callback_page_key))
+  end
+end
+
+---@param S CometState
+---@param item CometItem
+local function run_item(S, item)
+  local sub = state.current_sub()
+  if not sub then
+    if item.action then
+      item.action(context.make(item_name(item), S.root_title))
+    end
+    return
+  end
+
+  if sub.multi_select then
+    run_multi_select(sub, item)
+    return
+  end
+  if sub.on_select then
+    sub.on_select(item, context.make(item_name(item)))
+  end
+  render.list()
+end
+
+--- Return focus to the input window after an action, if the palette still
+--- owns the current window.
+---@param S CometState
+---@param was_insert boolean
+local function restore_focus(S, was_insert)
+  if
+    not (state.is_open() and S.input_win and api.nvim_win_is_valid(S.input_win))
+  then
+    return
+  end
+
+  local cur = api.nvim_get_current_win()
+  if cur == S.input_win or cur == S.list_win or cur == S.output_win then
+    api.nvim_set_current_win(S.input_win)
+    if was_insert then
+      vim.cmd("startinsert")
+    end
+  end
+end
+
 --- Execute the currently focused item
 M.run_selected = function()
   local S = state.get()
   local page_id = state.page_id(S.session_id, S.current_page_key)
-
-  -- Block if running
-  if
-    S.block_while_running
-    and state.running_tasks[page_id]
-    and state.running_tasks[page_id].status == "running"
-  then
-    vim.api.nvim_echo({
-      {
-        " Task is still running. Press <C-c> to stop it first.",
-        "DiagnosticWarn",
-      },
-    }, false, {})
+  if blocked_by_task(S, page_id) then
     return
   end
 
@@ -154,76 +246,14 @@ M.run_selected = function()
   if require("comet.command").submit() then
     return
   end
-  local items = state.current_items()
-  local sel = state.current_selected()
-  if #items == 0 then
-    return
-  end
-
-  local item = items[sel]
+  local item = state.current_items()[state.current_selected()]
   if not item then
     return
   end
 
-  local trigger_name = type(item) == "table" and (item.name or "Item")
-    or tostring(item)
-  local sub = state.current_sub()
-
-  if sub then
-    if sub.multi_select then
-      local selected_items = {}
-      if vim.tbl_count(sub.marked) > 0 then
-        for _, it in ipairs(sub.all_items) do
-          local key = type(it) == "table" and it._idx or it
-          if sub.marked[key] then
-            table.insert(selected_items, it)
-          end
-        end
-        if #selected_items > 1 then
-          trigger_name = "Multi(" .. #selected_items .. ")"
-        else
-          local first = selected_items[1]
-          trigger_name = type(first) == "table" and (first.name or "Item")
-            or tostring(first)
-        end
-      else
-        selected_items = { item }
-      end
-
-      local on_sel = sub.on_select
-      local callback_page_key = sub.page_key
-      window.switch_output_buf(callback_page_key)
-      render.list()
-
-      if on_sel and #selected_items > 0 then
-        on_sel(selected_items, context.make(trigger_name, callback_page_key))
-      end
-    else
-      if sub.on_select then
-        sub.on_select(item, context.make(trigger_name))
-      end
-      render.list()
-    end
-  else
-    if item.action then
-      item.action(context.make(trigger_name, S.root_title))
-    end
-  end
-
+  run_item(S, item)
   vim.schedule(function()
-    if
-      state.is_open()
-      and S.input_win
-      and api.nvim_win_is_valid(S.input_win)
-    then
-      local cur = api.nvim_get_current_win()
-      if cur == S.input_win or cur == S.list_win or cur == S.output_win then
-        api.nvim_set_current_win(S.input_win)
-        if was_insert then
-          vim.cmd("startinsert")
-        end
-      end
-    end
+    restore_focus(S, was_insert)
   end)
 end
 

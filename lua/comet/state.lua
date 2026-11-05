@@ -7,6 +7,15 @@
 ---@field desc? string Used for fuzzy filtering
 ---@field action fun(ctx: CometCtx) Callback executed when selected
 
+---@class CometMenuItem
+---@field name string Display name of the item
+---@field desc? string Used for fuzzy filtering
+---@field icon? string Icon to display
+---@field icon_hl? string Highlight group for the icon
+---@field _idx? integer Position in the original list, set by Comet
+
+---@alias CometItem string|CometMenuItem|CometCommand
+
 ---@class CometOpts
 ---@field session_id? string Title for the left panel
 ---@field root_title? string Optional title for the root page (defaults to session_id)

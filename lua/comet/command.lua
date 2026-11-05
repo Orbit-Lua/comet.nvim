@@ -42,85 +42,127 @@ function M.open(ctx, opts)
   M.update()
 end
 
+--- Read the typed text after the prompt and the cursor offset in that text.
+---@param S CometState
+---@return string text
+---@return integer cursor zero-based byte offset, clamped to the text
+local function read_input(S)
+  local line = api.nvim_buf_get_lines(S.input_buf, 0, 1, false)[1] or ""
+  local text = line:sub(#S.prompt + 1)
+  local column = api.nvim_win_get_cursor(S.input_win)[2] - #S.prompt
+  return text, math.max(0, math.min(#text, column))
+end
+
+---@class CometCompletionTarget
+---@field S CometState
+---@field page SubMenuState
+---@field revision integer
+---@field buffer integer
+---@field win integer
+---@field text string
+---@field cursor integer
+
+--- True while the page, its revision and its input still match the request.
+---@param target CometCompletionTarget
+---@return boolean
+local function still_current(target)
+  local S, page = target.S, target.page
+  if
+    not state.is_open()
+    or state.get() ~= S
+    or state.current_sub() ~= page
+    or page.revision ~= target.revision
+    or not api.nvim_buf_is_valid(target.buffer)
+    or not api.nvim_win_is_valid(target.win)
+  then
+    return false
+  end
+
+  local text, cursor = read_input(S)
+  return text == target.text and cursor == target.cursor
+end
+
+---@param page SubMenuState
+local function show_failure(page)
+  page.completion_error = true
+  page.items = { { name = "Completion unavailable; keep typing to retry" } }
+  page.all_items = page.items
+  render.list()
+end
+
+---@param target CometCompletionTarget
+---@param items? CometCompletionItem[]
+---@param err? any
+local function apply_completion(target, items, err)
+  local page = target.page
+  page.items = {}
+  for _, item in ipairs(items or {}) do
+    if type(item.label) == "string" and type(item.text) == "string" then
+      page.items[#page.items + 1] = { name = item.label, completion = item }
+    end
+  end
+  page.all_items = page.items
+  page.completion_input = { text = target.text, cursor = target.cursor }
+  page.selected = math.min(page.selected, math.max(1, #page.items))
+  if err then
+    show_failure(page)
+  else
+    render.list()
+  end
+end
+
+--- Call the consumer's completion provider for one input revision.
+---@param target CometCompletionTarget
+local function request_completion(target)
+  if not still_current(target) then
+    return
+  end
+
+  local page = target.page
+  local ok, stop = pcall(
+    page.command.complete,
+    { text = target.text, cursor = target.cursor },
+    function(items, err)
+      vim.schedule(function()
+        if still_current(target) then
+          apply_completion(target, items, err)
+        end
+      end)
+    end
+  )
+  if not ok then
+    show_failure(page)
+  elseif type(stop) == "function" then
+    if still_current(target) then
+      page.cancel_completion = stop
+    else
+      stop()
+    end
+  end
+end
+
 function M.update()
   local S, page = active()
   if not S then
     return false
   end
   cancel(page)
-  local revision, buffer, win = page.revision, S.input_buf, S.input_win
-  local text = (api.nvim_buf_get_lines(buffer, 0, 1, false)[1] or ""):sub(
-    #S.prompt + 1
-  )
-  local cursor =
-    math.max(0, math.min(#text, api.nvim_win_get_cursor(win)[2] - #S.prompt))
-  local function current()
-    if
-      not state.is_open()
-      or state.get() ~= S
-      or state.current_sub() ~= page
-      or page.revision ~= revision
-      or not api.nvim_buf_is_valid(buffer)
-      or not api.nvim_win_is_valid(win)
-    then
-      return false
-    end
-    local line = api.nvim_buf_get_lines(buffer, 0, 1, false)[1] or ""
-    return line:sub(#S.prompt + 1) == text
-      and math.max(
-          0,
-          math.min(#text, api.nvim_win_get_cursor(win)[2] - #S.prompt)
-        )
-        == cursor
-  end
+  local text, cursor = read_input(S)
+  ---@type CometCompletionTarget
+  local target = {
+    S = S,
+    page = page,
+    revision = page.revision,
+    buffer = S.input_buf,
+    win = S.input_win,
+    text = text,
+    cursor = cursor,
+  }
   page.items, page.all_items, page.selected = {}, {}, 1
   page.completion_error = nil
   render.list()
-  local function failed()
-    page.completion_error = true
-    page.items = { { name = "Completion unavailable; keep typing to retry" } }
-    page.all_items = page.items
-    render.list()
-  end
   vim.defer_fn(function()
-    if not current() then
-      return
-    end
-    local ok, stop = pcall(
-      page.command.complete,
-      { text = text, cursor = cursor },
-      function(items, err)
-        vim.schedule(function()
-          if not current() then
-            return
-          end
-          page.items = {}
-          for _, item in ipairs(items or {}) do
-            if type(item.label) == "string" and type(item.text) == "string" then
-              page.items[#page.items + 1] =
-                { name = item.label, completion = item }
-            end
-          end
-          page.all_items = page.items
-          page.completion_input = { text = text, cursor = cursor }
-          page.selected = math.min(page.selected, math.max(1, #page.items))
-          if err then
-            failed()
-          else
-            render.list()
-          end
-        end)
-      end
-    )
-    if not ok then
-      failed()
-    elseif type(stop) == "function" then
-      if current() then
-        page.cancel_completion = stop
-      else
-        stop()
-      end
-    end
+    request_completion(target)
   end, 80)
   return true
 end
@@ -135,16 +177,8 @@ function M.accept()
     return true
   end
   local completion, input = item.completion, page.completion_input
-  local line = api.nvim_buf_get_lines(S.input_buf, 0, 1, false)[1] or ""
-  if line:sub(#S.prompt + 1) ~= input.text then
-    return true
-  end
-  if
-    math.max(
-      0,
-      math.min(#input.text, api.nvim_win_get_cursor(S.input_win)[2] - #S.prompt)
-    ) ~= input.cursor
-  then
+  local text, cursor = read_input(S)
+  if text ~= input.text or cursor ~= input.cursor then
     return true
   end
   local first, last =
@@ -179,9 +213,7 @@ function M.submit()
   if not S then
     return false
   end
-  local text = (api.nvim_buf_get_lines(S.input_buf, 0, 1, false)[1] or ""):sub(
-    #S.prompt + 1
-  )
+  local text = read_input(S)
   cancel(page)
   page.items, page.all_items, page.completion_input = {}, {}, nil
   window.put_input_query("")
