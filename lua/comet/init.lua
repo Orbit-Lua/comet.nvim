@@ -6,6 +6,7 @@ local window = require("comet.ui.window")
 
 local M = {}
 
+--- Set global defaults. Raises an error for an unknown key or a wrong type.
 ---@param opts? CometOpts
 M.setup = function(opts)
   config.setup(opts)
@@ -13,7 +14,7 @@ end
 
 --- Open the two-panel picker UI.
 ---@param commands CometCommand[] Array of Command Specs
----@param opts? CometOpts User options
+---@param opts? CometOpts User options; invalid options raise before any window changes
 M.open = function(commands, opts)
   local resolved_opts = config.resolve(opts)
 
