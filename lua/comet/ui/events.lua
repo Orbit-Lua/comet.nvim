@@ -34,91 +34,111 @@ M.apply_output_keymaps = function(buf)
   km_fixed_buf("n", "a", action.send_task_input)
 end
 
---- Bootstrap all event handlers onto the active layout
-M.setup = function()
-  local S = state.get()
-  if not S then
+---@param delta integer
+---@return fun()
+local function mover(delta)
+  return function()
+    action.move(delta)
+  end
+end
+
+--- Keys shared by the input and list buffers.
+---@param buf integer
+local function map_common(buf)
+  km({ "n", "i" }, "<Esc>", action.handle_esc, buf)
+  km("n", "q", action.handle_esc, buf)
+  km({ "n", "i" }, "<C-c>", action.stop_job, buf)
+  km({ "n", "i" }, "<C-l>", window.focus_output, buf)
+  km({ "n", "i" }, "<C-h>", window.unfocus_output, buf)
+  km({ "n", "i" }, "<C-i>", "<Nop>", buf)
+end
+
+---@param buf integer
+local function map_input(buf)
+  km({ "i", "n" }, "<C-j>", mover(1), buf)
+  km({ "i", "n" }, "<C-k>", mover(-1), buf)
+  km({ "i", "n" }, "<C-n>", mover(1), buf)
+  km({ "i", "n" }, "<C-p>", mover(-1), buf)
+
+  km("i", "<Down>", mover(1), buf)
+  km("i", "<Up>", mover(-1), buf)
+  km("i", "<CR>", action.run_selected, buf)
+
+  km("n", "j", mover(1), buf)
+  km("n", "k", mover(-1), buf)
+  km("n", "<S-g>", action.move_to_bottom, buf)
+  km("n", "gg", action.move_to_top, buf)
+  km("n", "<CR>", action.run_selected, buf)
+  km({ "n", "i" }, "<Tab>", action.toggle_mark, buf)
+end
+
+---@param buf integer
+local function map_list(buf)
+  km("n", "j", mover(1), buf)
+  km("n", "k", mover(-1), buf)
+  km("n", "<CR>", action.run_selected, buf)
+  km("n", "<Tab>", action.toggle_mark, buf)
+end
+
+--- Filter the current page from the typed query.
+---@param S CometState
+local function on_query_changed(S)
+  if require("comet.command").update() then
     return
   end
+  local line = api.nvim_get_current_line()
+  local query = line:sub(#S.prompt + 1)
+  S.last_query = query
 
-  for _, buf in ipairs({ S.input_buf, S.list_buf }) do
-    km({ "n", "i" }, "<Esc>", action.handle_esc, buf)
-    km("n", "q", action.handle_esc, buf)
-    km({ "n", "i" }, "<C-c>", action.stop_job, buf)
-    km({ "n", "i" }, "<C-l>", window.focus_output, buf)
-    km({ "n", "i" }, "<C-h>", window.unfocus_output, buf)
-    km({ "n", "i" }, "<C-i>", "<Nop>", buf)
+  if state.current_sub() then
+    state.current_sub().selected = 1
+    filter.filter_sub(query)
+  else
+    S.selected = 1
+    filter.filter_commands(query)
   end
+  render.list()
+end
 
-  km({ "i", "n" }, "<C-j>", function()
-    action.move(1)
-  end, S.input_buf)
-  km({ "i", "n" }, "<C-k>", function()
-    action.move(-1)
-  end, S.input_buf)
-  km({ "i", "n" }, "<C-n>", function()
-    action.move(1)
-  end, S.input_buf)
-  km({ "i", "n" }, "<C-p>", function()
-    action.move(-1)
-  end, S.input_buf)
+--- Keep the cursor after the prompt.
+---@param S CometState
+local function on_cursor_moved(S)
+  local cursor = api.nvim_win_get_cursor(0)
+  if cursor[2] < #S.prompt then
+    pcall(api.nvim_win_set_cursor, 0, { cursor[1], #S.prompt })
+  end
+  require("comet.command").update()
+end
 
-  km("i", "<Down>", function()
-    action.move(1)
-  end, S.input_buf)
-  km("i", "<Up>", function()
-    action.move(-1)
-  end, S.input_buf)
-  km("i", "<CR>", action.run_selected, S.input_buf)
+--- Close the palette when any of its windows closes. Reads the latest state,
+--- because a reopened palette replaces the state that set up this handler.
+---@param closed? integer
+local function on_win_closed(closed)
+  if not state.is_open() then
+    return
+  end
+  local cur_S = state.get()
+  if
+    cur_S.input_win
+    and (
+      closed == cur_S.input_win
+      or closed == cur_S.list_win
+      or closed == cur_S.output_win
+    )
+  then
+    vim.schedule(window.close)
+  end
+end
 
-  km("n", "j", function()
-    action.move(1)
-  end, S.input_buf)
-  km("n", "k", function()
-    action.move(-1)
-  end, S.input_buf)
-  km("n", "<S-g>", function()
-    action.move_to_bottom()
-  end, S.input_buf)
-  km("n", "gg", function()
-    action.move_to_top()
-  end, S.input_buf)
-  km("n", "<CR>", action.run_selected, S.input_buf)
-
-  km("n", "j", function()
-    action.move(1)
-  end, S.list_buf)
-  km("n", "k", function()
-    action.move(-1)
-  end, S.list_buf)
-  km("n", "<CR>", action.run_selected, S.list_buf)
-
-  km({ "n", "i" }, "<Tab>", action.toggle_mark, S.input_buf)
-  km("n", "<Tab>", action.toggle_mark, S.list_buf)
-
-  -- Setup Autocmds
+---@param S CometState
+local function create_autocmds(S)
   local aug = api.nvim_create_augroup("CometUI", { clear = true })
-  local prompt_bytes = #S.prompt
 
   api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
     group = aug,
     buffer = S.input_buf,
     callback = function()
-      if require("comet.command").update() then
-        return
-      end
-      local line = api.nvim_get_current_line()
-      local query = line:sub(prompt_bytes + 1)
-      S.last_query = query
-
-      if state.current_sub() then
-        state.current_sub().selected = 1
-        filter.filter_sub(query)
-      else
-        S.selected = 1
-        filter.filter_commands(query)
-      end
-      render.list()
+      on_query_changed(S)
     end,
   })
 
@@ -126,34 +146,14 @@ M.setup = function()
     group = aug,
     buffer = S.input_buf,
     callback = function()
-      local cursor = api.nvim_win_get_cursor(0)
-      local min_col = prompt_bytes
-
-      if cursor[2] < min_col then
-        pcall(api.nvim_win_set_cursor, 0, { cursor[1], min_col })
-      end
-      require("comet.command").update()
+      on_cursor_moved(S)
     end,
   })
 
   api.nvim_create_autocmd("WinClosed", {
     group = aug,
     callback = function(ev)
-      local closed = tonumber(ev.match)
-      -- Always check the latest state dynamically to avoid stale closure issues
-      if state.is_open() then
-        local cur_S = state.get()
-        if
-          cur_S.input_win
-          and (
-            closed == cur_S.input_win
-            or closed == cur_S.list_win
-            or closed == cur_S.output_win
-          )
-        then
-          vim.schedule(window.close)
-        end
-      end
+      on_win_closed(tonumber(ev.match))
     end,
   })
 
@@ -165,6 +165,20 @@ M.setup = function()
       end
     end,
   })
+end
+
+--- Bootstrap all event handlers onto the active layout
+M.setup = function()
+  local S = state.get()
+  if not S then
+    return
+  end
+
+  map_common(S.input_buf)
+  map_common(S.list_buf)
+  map_input(S.input_buf)
+  map_list(S.list_buf)
+  create_autocmds(S)
 end
 
 return M

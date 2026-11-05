@@ -10,21 +10,44 @@
 ---@field _selected_sub? SubMenuState Submenu opened by this context
 ---@field write fun(self: CometCtx, lines: string[]|string)
 ---@field clear fun(self: CometCtx)
----@field done fun(self: CometCtx)
----@field error fun(self: CometCtx)
+---@field done fun(self: CometCtx, job_id?: integer)
+---@field error fun(self: CometCtx, job_id?: integer)
 ---@field append fun(self: CometCtx, line: string)
----@field start_async_task fun(self: CometCtx, job_id: integer, abort_fn: function|nil)
----@field terminal fun(self: CometCtx, job_id: integer, opts?: table)
----@field update fun(self: CometCtx, items: any[])
+---@field start_async_task fun(self: CometCtx, job_id: integer, abort_fn?: fun(job_id: integer, ctx: CometCtx))
+---@field terminal fun(self: CometCtx, job_id: integer, opts?: CometTerminalOpts)
+---@field update fun(self: CometCtx, items: CometItem[]): boolean
 ---@field set_status fun(self: CometCtx, status: string)
----@field select fun(self: CometCtx, items: any[], opts: CometSelectOpts)
----@field command fun(self: CometCtx, opts: table) Open a transient command page.
+---@field select fun(self: CometCtx, items: CometItem[], opts: CometSelectOpts)
+---@field command fun(self: CometCtx, opts: CometCommandOpts) Open a transient command page.
 
 ---@class CometSelectOpts
 ---@field title? string
 ---@field multi_select? boolean
----@field on_select fun(item_or_items: any, ctx: CometCtx)
+---@field on_select? fun(item_or_items: CometItem|CometItem[], ctx: CometCtx)
 ---@field on_cancel? fun()
+
+---@class CometTerminalOpts
+---@field on_input? fun(text: string) Send a line by another transport than `chansend`.
+---@field prompt? string Input prompt. Default `stdin> `.
+---@field abort_fn? fun(job_id: integer, ctx: CometCtx) Stop function when the task is not tracked yet.
+
+---@class CometCompletionRequest
+---@field text string Input text after the prompt.
+---@field cursor integer Zero-based UTF-8 byte offset in `text`.
+
+---@class CometCompletionItem
+---@field label string Text shown in the list.
+---@field text string Replacement text.
+---@field start? integer Zero-based start byte of the replaced range.
+---@field finish? integer Zero-based, end-exclusive byte of the replaced range.
+
+---@alias CometCompletionReply fun(items?: CometCompletionItem[], err?: any)
+
+---@class CometCommandOpts
+---@field complete fun(request: CometCompletionRequest, reply: CometCompletionReply): fun()? Returns a cancel function.
+---@field submit fun(text: string, ctx: CometCtx)
+---@field title? string Page title. Default `Command`.
+---@field initial? string Transient initial input, such as a command prefix.
 
 local render = require("comet.ui.render")
 local state = require("comet.state")
@@ -226,7 +249,6 @@ M.make = function(trigger_name, page_key)
   local target_page_key = page_key or S.current_page_key
   local page_id = state.page_id(S.session_id, target_page_key)
 
-  ---@type CometCtx
   local ctx = {
     target_buf = state.output_buf_cache[page_id] or S.output_buf,
     target_page_key = target_page_key,
@@ -238,7 +260,7 @@ M.make = function(trigger_name, page_key)
   for name, method in pairs(methods) do
     ctx[name] = method
   end
-  return ctx
+  return ctx --[[@as CometCtx]]
 end
 
 return M

@@ -13,6 +13,7 @@
 ---@field icon? string Icon to display
 ---@field icon_hl? string Highlight group for the icon
 ---@field _idx? integer Position in the original list, set by Comet
+---@field completion? CometCompletionItem Set on command-page suggestions
 
 ---@alias CometItem string|CometMenuItem|CometCommand
 
@@ -29,22 +30,35 @@
 ---@field abort_fn fun()|nil Function to call to signal the task to stop
 ---@field status "running"|"done"|"abort"|"error"|nil Current status of the task for UI display
 ---@field id integer|nil Job ID if applicable
+---@field input_fn? fun(text: string) Sends a line of input to an interactive task
+---@field input_prompt? string Prompt for that input
 
 ---@class SubMenuState
----@field all_items any[]
----@field items any[]
+---@field all_items CometItem[]
+---@field items CometItem[]
 ---@field selected integer
 ---@field title string
 ---@field page_key string
 ---@field saved_query string
 ---@field multi_select boolean
----@field marked table<any, boolean>
----@field on_select? fun(item_or_items: any, ctx: CometCtx)
+---@field marked table<integer|CometItem, boolean> Marked items by `_idx`, or the string item
+---@field on_select? fun(item_or_items: CometItem|CometItem[], ctx: CometCtx)
+---@field kind? "command" Set on a command-entry page
+---@field revision? integer Completion revision of a command page
+---@field cancel_completion? fun()
+---@field completion_input? CometCompletionRequest
+---@field completion_error? boolean
+---@field undo_levels? integer Input 'undolevels' before the command page opened
 ---@field on_cancel? fun()
+
+---@class CometCommandPage: SubMenuState
+---@field kind "command"
+---@field command CometCommandOpts
+---@field command_ctx CometCtx
 
 ---@class CometState
 ---@field commands CometCommand[]
----@field filtered any[]
+---@field filtered CometCommand[]
 ---@field selected integer
 ---@field sub_stack SubMenuState[]
 ---@field last_query string
@@ -67,6 +81,7 @@
 ---@field input_win? integer
 ---@field list_win? integer
 ---@field output_win? integer
+---@field layout? boolean True after the windows are created
 
 local M = {}
 
@@ -100,6 +115,7 @@ M.page_id = function(session_id, page_key)
     .. page_key
 end
 
+---@return string?
 M.current_page_id = function()
   if not S then
     return nil
@@ -133,7 +149,7 @@ end
 --- Initialize a new session state
 ---@param commands CometCommand[]
 ---@param opts CometOpts
----@param layout_opts table Pre-calculated layout dimensions
+---@param layout_opts { list_h: integer } Pre-calculated layout dimensions
 M.init = function(commands, opts, layout_opts)
   local session_id = opts.session_id or "Comet"
   local root_title = opts.root_title or session_id
@@ -175,13 +191,15 @@ M.init = function(commands, opts, layout_opts)
   end
 end
 
+---@param page_key string
+---@return string
 M.page_id_for = function(page_key)
   local active = M.get()
   return M.page_id(active.session_id, page_key)
 end
 
 --- Helper to get current active list of items (root or sub-menu)
----@return any[]
+---@return CometItem[]
 M.current_items = function()
   if not S then
     return {}

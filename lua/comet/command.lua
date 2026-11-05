@@ -5,16 +5,21 @@ local render = require("comet.ui.render")
 local api = vim.api
 local M = {}
 
+---@return CometState? S
+---@return CometCommandPage? page
 local function active()
   if not state.is_open() then
     return
   end
   local page = state.current_sub()
   if page and page.kind == "command" then
+    ---@cast page CometCommandPage
     return state.get(), page
   end
 end
 
+--- Invalidate pending completion of a command page.
+---@param page SubMenuState
 local function cancel(page)
   page.revision = (page.revision or 0) + 1
   if page.cancel_completion then
@@ -23,13 +28,16 @@ local function cancel(page)
   end
 end
 
+--- Open a command-entry page from a context.
+---@param ctx CometCtx
+---@param opts CometCommandOpts
 function M.open(ctx, opts)
   assert(
     type(opts.complete) == "function" and type(opts.submit) == "function",
     "command complete and submit callbacks are required"
   )
   ctx:select({}, { title = opts.title or "Command" })
-  local page = state.current_sub()
+  local page = state.current_sub() --[[@as CometCommandPage]]
   page.kind, page.command, page.command_ctx = "command", opts, ctx
   local input = state.get().input_buf
   page.undo_levels = vim.bo[input].undolevels
@@ -55,7 +63,7 @@ end
 
 ---@class CometCompletionTarget
 ---@field S CometState
----@field page SubMenuState
+---@field page CometCommandPage
 ---@field revision integer
 ---@field buffer integer
 ---@field win integer
@@ -141,9 +149,11 @@ local function request_completion(target)
   end
 end
 
+--- Request completion for the current input of a command page.
+---@return boolean handled false when no command page is active
 function M.update()
   local S, page = active()
-  if not S then
+  if not (S and page) then
     return false
   end
   cancel(page)
@@ -167,16 +177,19 @@ function M.update()
   return true
 end
 
+--- Apply the selected completion to the input.
+---@return boolean handled
 function M.accept()
   local S, page = active()
-  if not S then
+  if not (S and page) then
     return false
   end
   local item = page.items[page.selected]
-  if not item or not item.completion or not page.completion_input then
+  local completion = type(item) == "table" and item.completion or nil
+  local input = page.completion_input
+  if not (completion and input) then
     return true
   end
-  local completion, input = item.completion, page.completion_input
   local text, cursor = read_input(S)
   if text ~= input.text or cursor ~= input.cursor then
     return true
@@ -208,9 +221,11 @@ function M.accept()
   return true
 end
 
+--- Pass the input to the consumer's submit callback.
+---@return boolean handled
 function M.submit()
   local S, page = active()
-  if not S then
+  if not (S and page) then
     return false
   end
   local text = read_input(S)
@@ -229,9 +244,10 @@ function M.submit()
   return true
 end
 
+--- Clear the command page that the user leaves.
 function M.leave()
   local S, page = active()
-  if not S then
+  if not (S and page) then
     return
   end
   cancel(page)
@@ -240,6 +256,7 @@ function M.leave()
   vim.bo[S.input_buf].undolevels = page.undo_levels
 end
 
+--- Drop command pages from the stack when the palette closes.
 function M.close()
   if not state.is_open() then
     return

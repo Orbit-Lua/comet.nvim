@@ -27,6 +27,7 @@ M.move = function(delta)
   render.list()
 end
 
+--- Select the first item
 M.move_to_top = function()
   local S = state.get()
   local sub = state.current_sub()
@@ -40,6 +41,7 @@ M.move_to_top = function()
   render.list()
 end
 
+--- Select the last item
 M.move_to_bottom = function()
   local S = state.get()
   local sub = state.current_sub()
@@ -257,6 +259,8 @@ M.run_selected = function()
   end)
 end
 
+---@param item CometItem
+---@return integer|CometItem
 local function get_mark_key(item)
   return type(item) == "table" and item._idx or item
 end

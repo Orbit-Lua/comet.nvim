@@ -1,5 +1,6 @@
 local M = {}
 
+--- Report Neovim compatibility for `:checkhealth comet`.
 M.check = function()
   vim.health.start("comet.nvim")
 

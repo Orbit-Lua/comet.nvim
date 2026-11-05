@@ -5,6 +5,7 @@ local state = require("comet.state")
 local api = vim.api
 local M = {}
 
+--- Recompute the layout after the editor resizes
 M.resize_layout = function()
   local S = state.get()
   if not S or not S.layout then
@@ -157,35 +158,23 @@ M.close = function()
   vim.cmd("stopinsert")
 end
 
---- Creates the 3 physical floating windows (Input, List, Output)
----@param w_total integer
----@param h_total integer
-M.create_layout = function(w_total, h_total)
-  local S = state.get()
-  S.layout = true
+---@class CometLayoutGeometry
+---@field row integer
+---@field col integer
+---@field list_w integer
+---@field output_w integer
+---@field height integer
 
-  local list_w = math.floor(w_total * 0.38)
-  local output_w = w_total - list_w - 4
-  local col_start = math.floor((vim.o.columns - w_total) / 2)
-  local row_start = math.floor((vim.o.lines - h_total) / 2)
-
-  S.input_buf = api.nvim_create_buf(false, true)
-  S.list_buf = api.nvim_create_buf(false, true)
-
-  -- Mount the proper output buf based on state
-  M.switch_output_buf(S.current_page_key)
-
-  -- FIX: correct title for the input window based on the current stack depth
-  local input_title = S.root_title
-  if #S.sub_stack > 0 then
-    input_title = S.sub_stack[#S.sub_stack].title
-  end
-
+--- Open the input, list and output floats at the given geometry.
+---@param S CometState
+---@param geo CometLayoutGeometry
+---@param input_title string
+local function open_windows(S, geo, input_title)
   S.input_win = api.nvim_open_win(S.input_buf, true, {
     relative = "editor",
-    row = row_start,
-    col = col_start,
-    width = list_w,
+    row = geo.row,
+    col = geo.col,
+    width = geo.list_w,
     height = 1,
     border = "rounded",
     style = "minimal",
@@ -196,9 +185,9 @@ M.create_layout = function(w_total, h_total)
 
   S.list_win = api.nvim_open_win(S.list_buf, false, {
     relative = "editor",
-    row = row_start + 3,
-    col = col_start,
-    width = list_w,
+    row = geo.row + 3,
+    col = geo.col,
+    width = geo.list_w,
     height = S.list_h,
     border = "rounded",
     style = "minimal",
@@ -207,18 +196,21 @@ M.create_layout = function(w_total, h_total)
 
   S.output_win = api.nvim_open_win(S.output_buf, false, {
     relative = "editor",
-    row = row_start,
-    col = col_start + list_w + 2,
-    width = output_w,
-    height = h_total,
+    row = geo.row,
+    col = geo.col + geo.list_w + 2,
+    width = geo.output_w,
+    height = geo.height,
     border = "rounded",
     style = "minimal",
     title = " Output ",
     title_pos = "center",
     zindex = 50,
   })
+end
 
-  -- Styling
+--- Apply window highlights and options, and turn the input into a prompt.
+---@param S CometState
+local function style_windows(S)
   local use_dark = vim.fn.hlID("ExBlack2Bg") ~= 0
   local win_hl = use_dark and "Normal:ExBlack2Bg,FloatBorder:ExBlack2Border"
     or "Normal:NormalFloat,FloatBorder:FloatBorder"
@@ -239,7 +231,41 @@ M.create_layout = function(w_total, h_total)
   vim.fn.prompt_setcallback(S.input_buf, function() end)
 end
 
---- Input extraction helpers
+--- Creates the 3 physical floating windows (Input, List, Output)
+---@param w_total integer
+---@param h_total integer
+M.create_layout = function(w_total, h_total)
+  local S = state.get()
+  S.layout = true
+
+  local list_w = math.floor(w_total * 0.38)
+  ---@type CometLayoutGeometry
+  local geo = {
+    row = math.floor((vim.o.lines - h_total) / 2),
+    col = math.floor((vim.o.columns - w_total) / 2),
+    list_w = list_w,
+    output_w = w_total - list_w - 4,
+    height = h_total,
+  }
+
+  S.input_buf = api.nvim_create_buf(false, true)
+  S.list_buf = api.nvim_create_buf(false, true)
+
+  -- Mount the proper output buf based on state
+  M.switch_output_buf(S.current_page_key)
+
+  -- The input title follows the current stack depth.
+  local input_title = S.root_title
+  if #S.sub_stack > 0 then
+    input_title = S.sub_stack[#S.sub_stack].title
+  end
+
+  open_windows(S, geo, input_title)
+  style_windows(S)
+end
+
+--- Remove the typed query from the input and return the saved query.
+---@return string
 M.take_input_query = function()
   local S = state.get()
   if not (S and S.input_buf and api.nvim_buf_is_valid(S.input_buf)) then
@@ -255,6 +281,8 @@ M.take_input_query = function()
   return saved
 end
 
+--- Replace the typed query in the input.
+---@param query string
 M.put_input_query = function(query)
   local S = state.get()
   if not (S and S.input_buf and api.nvim_buf_is_valid(S.input_buf)) then

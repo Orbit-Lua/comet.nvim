@@ -167,10 +167,15 @@ M.out_clear = function(target_buf)
   end
 end
 
+---@param item CometItem
+---@return integer|CometItem
 local function get_mark_key(item)
   return type(item) == "table" and item._idx or item
 end
 
+---@param S CometState
+---@param item CometItem
+---@return string?
 local function item_icon(S, item)
   if not S.show_icons then
     return nil
@@ -181,27 +186,17 @@ local function item_icon(S, item)
   return S.default_icon
 end
 
---- Render the left panel list based on current state
-M.list = function()
-  local S = state.get()
-  if not (S.list_buf and api.nvim_buf_is_valid(S.list_buf)) then
-    return
-  end
-
-  local items = state.current_items()
-  local sel = state.current_selected()
-  local sub = state.current_sub()
-  local is_multi = sub and sub.multi_select
-
-  api.nvim_buf_clear_namespace(S.list_buf, S.ns, 0, -1)
-  vim.bo[S.list_buf].modifiable = true
-
-  local lines = {}
-  local mark_offsets = {}
-
+--- Build the list lines and the byte width of each row's mark column.
+---@param S CometState
+---@param items CometItem[]
+---@param sub? SubMenuState
+---@return string[] lines
+---@return integer[] mark_offsets
+local function list_lines(S, items, sub)
+  local lines, mark_offsets = {}, {}
   for idx, item in ipairs(items) do
     local mark = ""
-    if is_multi and sub then
+    if sub and sub.multi_select then
       mark = sub.marked[get_mark_key(item)] and "✓ " or "  "
     end
     mark_offsets[idx] = #mark
@@ -214,49 +209,85 @@ M.list = function()
   while #lines < S.list_h do
     table.insert(lines, "")
   end
+  return lines, mark_offsets
+end
+
+---@class CometListRow
+---@field row integer zero-based line
+---@field item CometItem
+---@field line string
+---@field mark_offset integer
+---@field selected boolean
+---@field marked boolean
+
+--- Highlight the selection, the mark, the icon and the name of one row.
+---@param S CometState
+---@param row CometListRow
+local function highlight_row(S, row)
+  if row.selected then
+    api.nvim_buf_set_extmark(
+      S.list_buf,
+      S.ns,
+      row.row,
+      0,
+      { line_hl_group = "Visual" }
+    )
+  end
+
+  if row.marked and row.mark_offset > 0 then
+    api.nvim_buf_set_extmark(
+      S.list_buf,
+      S.ns,
+      row.row,
+      2,
+      { end_col = 2 + row.mark_offset, hl_group = "DiagnosticOk" }
+    )
+  end
+
+  local item = row.item
+  local icon = item_icon(S, item)
+  local name_start = 2 + row.mark_offset
+  if icon and icon ~= "" then
+    local icon_hl = type(item) == "table" and item.icon_hl or "String"
+    local icon_end = name_start + #icon
+    api.nvim_buf_set_extmark(S.list_buf, S.ns, row.row, name_start, {
+      end_col = icon_end,
+      hl_group = icon_hl or "String",
+    })
+    name_start = icon_end + 2
+  end
+  api.nvim_buf_set_extmark(S.list_buf, S.ns, row.row, name_start, {
+    end_col = #row.line,
+    hl_group = row.selected and "CursorLineNr" or "Normal",
+  })
+end
+
+--- Render the left panel list based on current state
+M.list = function()
+  local S = state.get()
+  if not (S.list_buf and api.nvim_buf_is_valid(S.list_buf)) then
+    return
+  end
+
+  local items = state.current_items()
+  local sel = state.current_selected()
+  local sub = state.current_sub()
+
+  api.nvim_buf_clear_namespace(S.list_buf, S.ns, 0, -1)
+  vim.bo[S.list_buf].modifiable = true
+
+  local lines, mark_offsets = list_lines(S, items, sub)
   api.nvim_buf_set_lines(S.list_buf, 0, -1, false, lines)
 
-  -- Apply list highlights
   for i, item in ipairs(items) do
-    local row = i - 1
-    local is_sel = (i == sel)
-    local moff = mark_offsets[i] or 0
-
-    if is_sel then
-      api.nvim_buf_set_extmark(
-        S.list_buf,
-        S.ns,
-        row,
-        0,
-        { line_hl_group = "Visual" }
-      )
-    end
-
-    if is_multi and moff > 0 and sub and sub.marked[get_mark_key(item)] then
-      api.nvim_buf_set_extmark(
-        S.list_buf,
-        S.ns,
-        row,
-        2,
-        { end_col = 2 + moff, hl_group = "DiagnosticOk" }
-      )
-    end
-
-    local icon = item_icon(S, item)
-    local name_start = 2 + moff
-    if icon and icon ~= "" then
-      local icon_hl = type(item) == "table" and item.icon_hl or "String"
-      local icon_start = 2 + moff
-      local icon_end = icon_start + #icon
-      api.nvim_buf_set_extmark(S.list_buf, S.ns, row, icon_start, {
-        end_col = icon_end,
-        hl_group = icon_hl or "String",
-      })
-      name_start = icon_end + 2
-    end
-    api.nvim_buf_set_extmark(S.list_buf, S.ns, row, name_start, {
-      end_col = #lines[i],
-      hl_group = is_sel and "CursorLineNr" or "Normal",
+    highlight_row(S, {
+      row = i - 1,
+      item = item,
+      line = lines[i],
+      mark_offset = mark_offsets[i] or 0,
+      selected = i == sel,
+      marked = sub and sub.multi_select and sub.marked[get_mark_key(item)]
+        or false,
     })
   end
 
