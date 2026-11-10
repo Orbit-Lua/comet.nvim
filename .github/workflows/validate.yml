@@ -1,4 +1,4 @@
-name: Validate Comet
+name: Validate
 
 on:
   push:

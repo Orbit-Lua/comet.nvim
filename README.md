@@ -2,7 +2,7 @@
 
 A two-panel command palette for Neovim: search actions on the left, keep each action's output on the right.
 
-[![Validate Comet](https://github.com/Orbit-Lua/comet.nvim/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/Orbit-Lua/comet.nvim/actions/workflows/validate.yml)
+[![Validate](https://github.com/Orbit-Lua/comet.nvim/actions/workflows/validate.yml/badge.svg?branch=main)](https://github.com/Orbit-Lua/comet.nvim/actions/workflows/validate.yml?query=branch%3Amain)
 [![Neovim 0.10+](https://img.shields.io/badge/Neovim-0.10%2B-57A143?logo=neovim&logoColor=white)](https://neovim.io/)
 
 comet.nvim suits project commands and interactive local jobs that need a small UI and persistent output.
