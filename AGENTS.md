@@ -43,7 +43,7 @@ Keep project-specific commands and behavior in the consuming plugin.
 
 ## Change contracts
 
-- Keep zero runtime plugin dependencies. Plenary, telemetry.nvim, StyLua and Luacheck are development tools.
+- Keep zero runtime plugin dependencies. Plenary, telemetry.lua, StyLua and Luacheck are development tools.
 - Give each new option a default and a shape entry in `config.lua`.
 - `setup()` and `open()` reject keys that the shape does not list. Validate before any state or window changes.
 - Read a context's session through `ctx._state` in context methods. Do not call `state.get()` there.
@@ -93,9 +93,9 @@ Keep project-specific commands and behavior in the consuming plugin.
 - `just all` checks formatting, runs Luacheck and runs the specs in `tests/comet/`.
 - Run one spec with `just test-spec tests/comet/<name>_spec.lua`.
 - `make all` rewrites formatting before it runs the same checks.
-- `tests/run.lua` runs each spec in its own Neovim process and reports through telemetry.nvim.
+- `tests/run.lua` runs each spec in its own Neovim process and reports through telemetry.lua.
 - Each spec child checks its own result. A failed or skipped test, a spec with no tests, or an editor error fails it.
-- Load Plenary from `$COMET_TEST_PLENARY` and telemetry.nvim from `$COMET_TEST_TELEMETRY`.
+- Load Plenary from `$COMET_TEST_PLENARY` and telemetry.lua from `$COMET_TEST_TELEMETRY`.
   - Without a variable, the runner uses the lazy.nvim data directory.
 - A missing dependency fails the run. Report each check that you could not run.
 - Test a real floating-window path when a change depends on it. `tests/comet/ui_spec.lua` drives the keymaps.
@@ -124,7 +124,7 @@ Keep project-specific commands and behavior in the consuming plugin.
 - Check out release jobs with `fetch-depth: 0`, so that the ancestry check sees the default branch.
 - Keep release secrets in an environment that allows only the release tags. Protect the tags with a tag ruleset.
 - CI runs on Linux only. Run `just all` on Windows before each push.
-- Pin Plenary to a commit in CI. telemetry.nvim is the exception: CI fetches its default branch.
+- Pin each CI test dependency to a commit. Pin telemetry.lua to the commit of its release tag.
 
 ## Docs
 

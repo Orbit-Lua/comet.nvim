@@ -12,7 +12,7 @@ vim.opt.runtimepath = { vim.fn.getcwd(), vim.env.VIMRUNTIME }
 vim.opt.packpath = {}
 for _, path in ipairs({
   vim.env.COMET_TEST_PLENARY or (plugins .. "/plenary.nvim"),
-  vim.env.COMET_TEST_TELEMETRY or (plugins .. "/telemetry.nvim"),
+  vim.env.COMET_TEST_TELEMETRY or (plugins .. "/telemetry.lua"),
 }) do
   assert(vim.fn.isdirectory(path) == 1, "Missing test dependency: " .. path)
   vim.opt.runtimepath:append(path)

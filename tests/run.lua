@@ -1,9 +1,9 @@
--- Run each spec in its own Neovim process through telemetry.nvim. Each child
+-- Run each spec in its own Neovim process through telemetry.lua. Each child
 -- validates its own results and exits nonzero on a failure; the parent checks
 -- only that the child reached its results.
 local cwd = vim.fn.getcwd()
 local telemetry_path = vim.env.COMET_TEST_TELEMETRY
-  or (vim.fn.stdpath("data") .. "/lazy/telemetry.nvim")
+  or (vim.fn.stdpath("data") .. "/lazy/telemetry.lua")
 if vim.fn.isdirectory(telemetry_path) == 0 then
   io.stderr:write("Missing test dependency: " .. telemetry_path .. "\n")
   vim.cmd("cquit 1")

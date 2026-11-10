@@ -16,20 +16,21 @@ jobs:
     timeout-minutes: 15
     env:
       COMET_TEST_PLENARY: ${{ github.workspace }}/.test-deps/plenary.nvim
-      COMET_TEST_TELEMETRY: ${{ github.workspace }}/.test-deps/telemetry.nvim
+      COMET_TEST_TELEMETRY: ${{ github.workspace }}/.test-deps/telemetry.lua
     steps:
       - name: Check out Comet
         uses: actions/checkout@v7
         with:
           persist-credentials: false
-      # Plenary is pinned. The telemetry.nvim test reporter is the exception:
-      # it tracks its default branch.
+      # Each test dependency is pinned to a commit. telemetry.lua is pinned to
+      # its 0.1.0 release.
       - name: Prepare test dependencies
         shell: bash
         run: |
           git clone --filter=blob:none https://github.com/nvim-lua/plenary.nvim.git "$COMET_TEST_PLENARY"
           git -C "$COMET_TEST_PLENARY" checkout 74b06c6c75e4eeb3108ec01852001636d85a932b
-          git clone --depth 1 --branch main https://github.com/Orbit-Lua/telemetry.nvim.git "$COMET_TEST_TELEMETRY"
+          git clone --filter=blob:none https://github.com/Orbit-Lua/telemetry.lua.git "$COMET_TEST_TELEMETRY"
+          git -C "$COMET_TEST_TELEMETRY" checkout f5d4e6dccc596a1c0968077c33ad0365fc24d1dd
       - name: Install Lua validation tools
         shell: bash
         run: |
