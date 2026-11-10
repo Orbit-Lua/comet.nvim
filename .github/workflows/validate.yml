@@ -30,7 +30,7 @@ jobs:
           git clone --filter=blob:none https://github.com/nvim-lua/plenary.nvim.git "$COMET_TEST_PLENARY"
           git -C "$COMET_TEST_PLENARY" checkout 74b06c6c75e4eeb3108ec01852001636d85a932b
           git clone --filter=blob:none https://github.com/Orbit-Lua/telemetry.lua.git "$COMET_TEST_TELEMETRY"
-          git -C "$COMET_TEST_TELEMETRY" checkout f5d4e6dccc596a1c0968077c33ad0365fc24d1dd
+          git -C "$COMET_TEST_TELEMETRY" checkout d6fdcf1d0ceb578c7ffc92099c46df9747bf41d1
       - name: Install Lua validation tools
         shell: bash
         run: |
